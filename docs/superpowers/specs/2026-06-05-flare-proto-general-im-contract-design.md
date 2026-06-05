@@ -9,17 +9,19 @@ Make `flare-proto` the strict, production-grade, business-neutral contract for a
 
 The contract must preserve IM invariants: per-conversation monotonic sequence, explicit identity separation, idempotent send and operation acknowledgements, offline-first sync, multi-device convergence, CQRS-friendly read models, and opaque extension slots that do not carry stable core semantics.
 
+Compatibility with previous local prototypes is explicitly out of scope. The protocol should be shaped as the clean target contract, with obsolete fields, names, enum values, and mixed responsibilities removed rather than kept as shims. Removed protobuf field numbers and names should still be reserved to prevent accidental wire reuse.
+
 ## Architectural Direction
 
-`flare-proto` should define only common IM contracts. It is not the place for Social rules, product-specific content catalogs, WebRTC/SFU control details, or business workflows.
+`flare-proto` should define only common IM contracts. It is not the place for Social rules, product-specific content catalogs, WebRTC/SFU control details, legacy prototype adapters, or business workflows.
 
 The core package remains `flare.common.v1` and keeps:
 
 - Identity and context shapes used by IM services and SDKs.
-- Message identity, ordering, status, content envelope, retention state, and push display hints.
+- Message identity, ordering, status, typed content envelope, retention state, and push display hints.
 - Conversation read models and user-level conversation settings.
 - Event, ACK, sync, error, MQ, data, and notification envelopes.
-- Extension envelopes for custom message content, custom events, and capability signals.
+- Extension envelopes for custom message content, durable custom events, and non-durable capability control packets.
 
 Business and optional capability contracts move outward:
 
@@ -50,10 +52,10 @@ Telegram alignment:
 ## Assumptions
 
 - Existing local prototypes do not require compatibility shims.
-- `flare-proto` is allowed to make breaking API changes if downstream crates are updated in the same implementation series.
+- `flare-proto` should make breaking API changes wherever they produce a cleaner target contract.
 - `flare-im-core` remains the server-side authority for message seq, storage, sync, and push orchestration.
 - `flare-im-core-sdk` remains the client-side authority for reliable sending, local storage, sync, and dispatch behavior.
-- Optional RTC and burn-after-read behavior currently exists in downstream code and must be migrated deliberately rather than silently removed.
+- Optional RTC and burn-after-read behavior currently exists in downstream code, but the target protocol must replace those shapes with capability control packets and generic retention naming.
 
 ## Bounded Contexts
 
@@ -61,13 +63,14 @@ Telegram alignment:
 
 Owns:
 
-- `server_id`, `client_msg_id`, `conversation_id`, `channel_id`, `seq`, `sender_id`, `message_type`, encoded `MessageContent`, `MessageStatus`.
+- `server_id`, `client_msg_id`, `conversation_id`, `channel_id`, `conversation_seq`, `message_seq`, `sender_id`, `message_type`, typed `MessageContent`, and `MessageStatus`.
 - Generic retention and visibility state.
 - Opaque extension maps.
 
 Does not own:
 
 - Friend rules, group membership policy, red packets, payments, approval flows, SFU rooms, or media-plane negotiation.
+- Sender profile rules, user directory shape, or business display names. Those are read-model snapshots or Social projections, not message aggregate invariants.
 
 ### Content Envelope
 
@@ -86,9 +89,20 @@ Product-specific structures become:
 Owns:
 
 - Ordered domain events that mutate message or conversation read models.
-- Operation events for recall, edit, delete, read receipt, reaction, pin, mark, retention lifecycle, conversation update, presence, typing, and custom events.
+- Operation events for recall, edit, delete, read receipt, reaction, pin, mark, retention lifecycle, conversation update, and durable custom events.
 
-Capability events use a generic capability signal instead of importing capability-specific protos into common.
+Durable capability facts use `CustomEvent` with a namespaced type only when they intentionally affect replayable state. Live capability signaling such as RTC invite, SDP, ICE, SFU hints, audio level, and network quality does not enter the durable event stream and does not consume conversation sequence.
+
+### Realtime Control
+
+Owns:
+
+- Typing state.
+- Presence hints.
+- Non-durable capability packets.
+- Connection-scoped control packets.
+
+Realtime control packets are best-effort, do not enter history sync, and do not consume `conversation_seq`.
 
 ### Sync
 
@@ -100,7 +114,7 @@ Owns:
 - Cursor update.
 - Recovery hints for stale cursors and seq gaps.
 
-Sync must not become a generic command bus for unrelated writes. User conversation settings may stay temporarily for SDK ergonomics, but the implementation plan should evaluate moving settings mutation to an explicit command surface in `flare-grpc-proto`.
+Sync must not become a generic command bus for unrelated writes. User conversation settings mutation belongs to an explicit command surface in `flare-grpc-proto`; sync only observes the resulting read-model changes.
 
 ### ACK
 
@@ -119,10 +133,12 @@ ACK must keep success/failure and structured error information explicit.
 
 Owns:
 
-- `capability_id`, `signal_type`, payload bytes, version, and attributes.
+- `capability_id`, `packet_type`, payload bytes, version, and attributes.
 - Routing to plugin implementations.
 
 Specific payloads are owned outside common by `flare-plugin`, `flare-sdk-plugin`, or service-specific proto packages.
+
+Capability control packets are not domain events by default. A plugin may emit a durable custom event only after the core accepts that the event changes replayable IM state.
 
 ## Command, Query, Event, Recovery
 
@@ -131,7 +147,7 @@ Command path:
 1. SDK creates local pending message with `client_msg_id`.
 2. Gateway or orchestrator receives send command.
 3. Core runs hooks and capability checks.
-4. Core assigns `server_id`, `seq`, and server timestamp.
+4. Core assigns `server_id`, `conversation_seq`, `message_seq`, and server timestamp.
 5. Core writes message/event to storage and event bus.
 6. Core returns `SendAck`.
 7. Downstream consumers update read models and push tasks.
@@ -139,24 +155,38 @@ Command path:
 Query path:
 
 1. SDK syncs conversation list by cursor.
-2. SDK syncs a conversation by `last_seq`.
+2. SDK syncs a conversation by `last_conversation_seq`.
 3. SDK replays critical events using event replay policy.
 4. SDK reads history and detail views from read-optimized query models.
 
 Event path:
 
 1. All state-changing operations become typed events.
-2. Events are idempotent by `event_id` and ordered by conversation seq where they affect a conversation timeline.
-3. Ephemeral events such as typing, presence, and live call hints are explicitly marked as non-history or capability signals.
+2. Events are idempotent by `event_id` and ordered by `conversation_seq` where they affect a conversation timeline.
+3. Ephemeral states such as typing, presence, and live call hints use realtime control packets instead of durable events.
 
 Recovery path:
 
-1. Client reports last applied seq and cursor.
+1. Client reports last applied `conversation_seq` and cursor.
 2. Server detects stale cursor, retention cutoff, or missing event range.
 3. Server returns structured recovery hints.
 4. Client refetches snapshot, resyncs one conversation, or replays events based on the hint.
 
 ## Recommended Design
+
+### 0. Rewrite Around Target Invariants
+
+Do not carry previous prototype shapes forward. The target protocol should be internally coherent even if every downstream crate must be updated.
+
+Hard decisions:
+
+- `Message.content` is a typed `MessageContent`, not raw bytes.
+- `conversation_seq` is the replay sequence for all durable conversation events.
+- `message_seq` is present only for message-created records and may have gaps relative to `conversation_seq`.
+- `MessageStatus` represents author/persistence lifecycle only; delivery and read state are per-user events/read models.
+- `request_id`, `client_msg_id`, `server_id`, `event_id`, ACK id, and sync cursor remain separate identifiers.
+- Body-level tenant, actor, and request context is avoided on client-facing messages; gRPC metadata, MQ headers, or connection context are authoritative.
+- `business_type` is removed from stable common contracts. Business routing uses hooks, capability ids, labels, custom content, or extension attributes.
 
 ### 1. Rename Burn Semantics To Generic Retention
 
@@ -176,22 +206,22 @@ Existing burn-after-read maps to:
 
 This keeps Signal/Telegram-style self-destruct messages possible without making the core contract sound like one specific feature.
 
-### 2. Replace RTC-Specific Common Event With Capability Signal
+### 2. Move RTC-Specific Signaling Out Of Common Events
 
-Remove direct `event.proto` dependency on `call_signal.proto`.
+Remove direct `event.proto` dependency on `call_signal.proto`, and do not replace it with a durable `EVENT_CAPABILITY_SIGNAL`.
 
-Add a generic event payload:
+Add a non-durable capability control packet outside the conversation event log:
 
-- `CapabilitySignalEvent`
-- fields: `capability_id`, `signal_type`, `version`, `payload`, `attributes`
+- `CapabilityPacket`
+- fields: `capability_id`, `packet_type`, `version`, `payload`, `attributes`, `correlation_id`
 
 RTC sends:
 
 - `capability_id = "rtc.call"`
-- `signal_type = "invite" | "accept" | "hangup" | "ice" | "sfu.join_hints" | ...`
+- `packet_type = "invite" | "accept" | "hangup" | "ice" | "sfu.join_hints" | ...`
 - `payload` is plugin-owned protobuf or JSON.
 
-The `flare-sdk-plugin-call` package keeps typed builders for call signals, but those builders encode plugin-owned payloads into the common capability signal. This preserves typed call ergonomics without binding common IM proto to SFU details.
+The `flare-sdk-plugin-call` package keeps typed builders for call payloads, but those builders encode plugin-owned payloads into `CapabilityPacket`. This preserves typed call ergonomics without binding common IM proto to SFU details. If a call needs a timeline-visible artifact, it creates a normal system/custom message or app card through the message pipeline.
 
 ### 3. Collapse Product-Specific Content Into App Card Or Custom
 
@@ -218,7 +248,7 @@ Recommended retained content types:
 - Custom
 - Placeholder
 
-Move or deprecate in common:
+Remove from common:
 
 - Vote
 - Task
@@ -226,7 +256,7 @@ Move or deprecate in common:
 - Announcement
 - MiniProgram
 
-These become `AppCardContent` or `CustomContent`. Generated SDKs can still expose convenience builders, but those builders should emit app-card/custom payloads rather than requiring new core enum variants.
+These become `AppCardContent` or `CustomContent`. Generated SDKs can still expose convenience builders, but those builders must emit app-card/custom payloads rather than requiring new core enum variants.
 
 ### 4. Normalize Sync As Query And Recovery
 
@@ -242,7 +272,7 @@ Recommended shape:
 - Event stream ACK.
 - Cursor get/update.
 
-Potential command-like sync entries such as `UpdateConversationUserSettingsSync` should be documented as transitional or moved to a dedicated command RPC in `flare-grpc-proto`.
+`UpdateConversationUserSettingsSync` is removed from target sync. The settings command writes through application command APIs, emits a conversation/settings event, and appears to clients through conversation list/detail sync.
 
 ### 5. Keep ACK First-Class And Typed
 
@@ -286,9 +316,12 @@ This is the best fit for a generic IM platform. Core remains small, stable, and 
 
 `flare-proto`:
 
-- Modify `message.proto`, `event.proto`, `message_content.proto`, `data.proto`, `sync.proto`, `ack.proto`, `README.md`, and `IM_PROTO_DESIGN.md`.
+- Modify `message.proto`, `event.proto`, `message_content.proto`, `data.proto`, `sync.proto`, `ack.proto`, `conversation.proto`, `README.md`, and `IM_PROTO_DESIGN.md`.
 - Add retention/capability-neutral naming.
 - Remove common import dependency from event to call-specific proto.
+- Remove body-level `business_type` from common message/conversation contracts.
+- Replace raw `bytes content` with typed `MessageContent content`.
+- Split replay `conversation_seq` from message-only `message_seq`.
 - Reserve removed field numbers and enum values.
 
 `flare-grpc-proto`:
@@ -301,18 +334,18 @@ This is the best fit for a generic IM platform. Core remains small, stable, and 
 
 - Replace `BurnConfig` / `MessageBurnState` conversion with new retention fields.
 - Update storage writer/reader/orchestrator to use retention naming.
-- Keep old database column migration only if already in storage; map it internally without leaking old names back into proto.
+- Rename domain and storage-facing fields to retention naming. Existing migrations may be superseded because compatibility is out of scope.
 
 `flare-im-core-sdk`:
 
 - Update message model and sync policy to retention naming.
-- Apply capability signal handling for call plugin events.
+- Apply capability packet handling for call plugin control traffic.
 - Keep offline-first send/sync behavior unchanged.
 
 `flare-sdk-plugin-call`:
 
 - Own typed call payloads and builder APIs.
-- Encode/decode call payloads through `CapabilitySignalEvent`.
+- Encode/decode call payloads through non-durable `CapabilityPacket`.
 
 `flare-im-core-client-sdk`:
 
@@ -322,13 +355,14 @@ This is the best fit for a generic IM platform. Core remains small, stable, and 
 
 ## Consistency Guarantees
 
-- `seq` remains monotonic per conversation and never rewinds.
+- `conversation_seq` is the only durable replay sequence.
+- `message_seq` is a message-created ordering aid and is not used as the event replay cursor.
 - `client_msg_id`, `server_id`, `event_id`, `request_id`, ACK ids, and cursor values remain distinct.
 - Retention expiration does not rewrite historical ordering.
 - Recall/edit/delete/read/reaction/pin/mark/retention are events, not in-place timeline mutations.
 - Conversation read models can be eventually consistent, but recovery hints must tell SDKs when snapshot refetch is required.
 - Social cursors and IM seq remain separate.
-- Capability payloads do not affect core ordering unless the containing event is explicitly part of the conversation event stream.
+- Capability control packets do not affect core ordering. Only explicit durable custom events or messages enter `conversation_seq`.
 
 ## Error Handling
 
@@ -336,14 +370,14 @@ This is the best fit for a generic IM platform. Core remains small, stable, and 
 - `SendAck` retains structured error details for optimistic UI convergence.
 - Hook denial maps to structured error reason and retry advice.
 - Sync stale states use `SyncStaleContext` and `SyncRecoveryHint`.
-- Capability signal failures should not poison the core sync stream; they return capability-specific errors through the capability service or custom payload response.
+- Capability packet failures should not poison the core sync stream; they return capability-specific errors through the capability service or custom payload response.
 
 ## Testing Strategy
 
 Smallest checks:
 
 - `cargo test` in `flare-proto`.
-- Focused contract tests for ACK, retention event wire values, and capability signal encoding.
+- Focused contract tests for ACK, retention event wire values, and capability packet encoding.
 
 Downstream checks:
 
@@ -358,23 +392,23 @@ Regression focus:
 - Read ACK versus delivery ACK.
 - Retention scheduling and expiration idempotency.
 - Critical event replay includes retention events.
-- Capability signal does not introduce dependency from common proto to plugin proto.
-- Conversation sync still returns per-conversation seq, snapshot, cursor, and recovery hints.
+- Capability packets do not introduce dependency from common proto to plugin proto and do not consume `conversation_seq`.
+- Conversation sync still returns per-conversation `conversation_seq`, snapshot, cursor, and recovery hints.
 
 ## Bottlenecks And Risks
 
 - Downstream drift already exists: `flare-im-core` currently references removed `BurnConfig` / `MessageBurnState`.
 - Generated SDKs may require wide updates if message content enum values change.
 - Moving call signals out of common affects `flare-sdk-plugin-call`, `flare-im-core-sdk` listeners, and existing generated client bindings.
-- Database schemas may keep burn column names temporarily; implementation should map storage names internally while exposing retention names in protocol.
 - Overusing `CustomContent` can become stringly typed. Capability-owned payload schemas and SDK builders should be used for high-value recurring capabilities.
 
 ## Implementation Order
 
 1. Stabilize `flare-proto` common contract.
-2. Update `flare-grpc-proto` extern paths and re-exports.
-3. Update `flare-im-core` conversion and orchestration.
-4. Update `flare-im-core-sdk` models, sync policy, and event handling.
-5. Update `flare-sdk-plugin-call` to encode call payloads through capability signal.
-6. Update sdk-spec and regenerate platform adapters.
-7. Run targeted checks from common contract outward.
+2. Delete common RTC/burn/product-catalog shapes and replace them with retention, app-card/custom, and capability packet contracts.
+3. Update `flare-grpc-proto` extern paths and re-exports.
+4. Update `flare-im-core` conversion and orchestration.
+5. Update `flare-im-core-sdk` models, sync policy, and event handling.
+6. Update `flare-sdk-plugin-call` to encode call payloads through capability packets.
+7. Update sdk-spec and regenerate platform adapters.
+8. Run targeted checks from common contract outward.
