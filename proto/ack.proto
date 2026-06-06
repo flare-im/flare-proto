@@ -2,92 +2,85 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
 import "errors.proto";
 
-// =============================================================================
-// 亿级 IM ACK 协议（上行 Send / 下行 Push）
-// =============================================================================
-// 设计目标：高可靠投递、断线恢复、多端同步、顺序保证、ACK 风暴控制、高扩展。
-// 约定：上行 Send = 客户端→服务端（发消息/事件），回执=服务端→客户端；下行 Push = 服务端→客户端（推送），回执=客户端→服务端。
-// 原则：以 conversation_id 为维度、max_seq 批量确认、ack_id/batch_id 幂等、支持 AckBatch/Piggyback、metadata 扩展。租户/操作者由连接或 metadata 注入。
-//
-// 统一结构：Ack（type + payload）与 Event 同风格，type 区分回执类型，payload 为具体载荷。
+// ACK：conversation_id + max_conversation_seq 批量确认，ack_id 幂等。上行 Send / 下行 Push 回执对称。
 
-// -----------------------------------------------------------------------------
-// Ack 类型与统一结构（类 Event）
-// -----------------------------------------------------------------------------
-
-enum AckType {
-  ACK_TYPE_UNSPECIFIED = 0;
-  ACK_TYPE_SEND = 1;       // 发消息回执
-  ACK_TYPE_EVENT = 2;      // 事件回执
-  ACK_TYPE_PUSH = 3;       // 批推送确认（客户端→服务端）
-  ACK_TYPE_CONVERSTION = 4;   // 会话回执，包含已读和送达
-  ACK_TYPE_BATCH = 5;      // 批量 ACK（客户端→服务端，多会话 deliver/read 等）
-}
-
-/// 统一 ACK 结构：type 区分回执类型，payload 为对应载荷（与 Event 同风格）
+/// 统一 ACK 结构：payload oneof 是唯一类型判别。
 message Ack {
-  AckType type = 1;
   optional string ack_id = 2;    // 幂等 id，可选
-  optional google.protobuf.Timestamp at = 3;  // 回执时间，可选
+  optional int64 ack_at = 3;  // 回执时间，可选，Unix epoch millis
   oneof payload {
     SendAck send = 10;
     EventAck event = 11;
     PushAck push = 12;
     ConversationAck conversation = 13;
+    ReadAck read = 14;
     AckBatch batch = 15;
   }
 }
 
-// -----------------------------------------------------------------------------
 // Send 侧回执（服务端→客户端）
-// -----------------------------------------------------------------------------
+
+/// Send ACK 已跨过的最高可靠性边界。
+enum SendAckDurability {
+  SEND_ACK_DURABILITY_UNSPECIFIED = 0;
+  SEND_ACK_DURABILITY_TRANSIENT_ACCEPTED = 1; // 仅实时投递已接受，不承诺离线/存储恢复
+  SEND_ACK_DURABILITY_WAL_ACCEPTED = 2;       // 已写入发送侧 WAL，可由恢复任务重放
+  SEND_ACK_DURABILITY_BROKER_ACCEPTED = 3;    // 已被主消息队列接受，异步存储/推送可恢复
+  SEND_ACK_DURABILITY_PERSISTED = 4;          // 已提交存储，可立即作为查询/同步水位
+}
 
 /// 发消息回执：客户端 Send 后服务端返回，client_msg_id 对应 server_msg_id/seq，多端同步锚点。
+message SendAccepted {
+  string server_msg_id = 1;
+  uint64 conversation_seq = 2;
+  int64 server_time = 3;
+  SendAckDurability durability = 4;
+}
+
 message SendAck {
   string client_msg_id = 1;
-  string server_msg_id = 2;
-  uint64 seq = 3;
-  string conversation_id = 4;
-  bool success = 5;
-  int32 error_code = 6;
-  string error_message = 7;
-  google.protobuf.Timestamp server_time = 8;
-  optional string ack_id = 9;  // 幂等，服务端生成，客户端可忽略
-  map<string, string> metadata = 10;
-  reserved 11 to 19;
+  string conversation_id = 2;
+  optional string ack_id = 3;  // 幂等，服务端生成，客户端可忽略
+  oneof result {
+    SendAccepted accepted = 10;
+    ErrorDetail error = 11; // 结构化错误详情；业务拒绝原因、展示文案、追踪信息统一走这里
+  }
 }
 
 /// 操作回执：对 SendEvent（撤回/编辑等），event_id 与 Event 对应。
 message EventAck {
   string event_id = 1;
-  map<string, string> metadata = 3;
-  reserved 4 to 9;
+  map<string, string> attributes = 3;
 }
 
-/// 会话维度送达回执
+/// 会话维度送达/处理回执，不表示已读。
 message ConversationAck {
   string conversation_id = 1;
   repeated string server_msg_ids = 2;
   uint64 last_delivered_seq = 3;
-  map<string, string> metadata = 8;
-  reserved 9 to 14;
+  map<string, string> attributes = 8;
 }
 
-// -----------------------------------------------------------------------------
+/// 显式已读回执。read_seq 是当前用户在 conversation_id 内确认已读的最大 seq。
+message ReadAck {
+  string conversation_id = 1;
+  uint64 read_seq = 2;
+  optional string device_id = 3;
+  optional string ack_id = 4;
+}
+
 // Push 侧回执（客户端→服务端）
-// -----------------------------------------------------------------------------
 
 /// 批确认：客户端确认已处理本批推送，window_id 与 EventEnvelope.window_id 对应。
 message PushAck {
   string window_id = 1;
   uint64 ack_seq = 2;
   optional string ack_id = 3;  // 本批唯一 id，幂等去重
-  optional google.protobuf.Timestamp ack_at = 4;
+  optional int64 ack_at = 4;
   optional string device_id = 5;  // 多端区分
-  map<string, string> metadata = 6;
+  map<string, string> attributes = 6;
 }
 
 /// 批量 ACK：一次携带多类回执，减少往返（如多会话 deliver + read piggyback）。
@@ -97,5 +90,6 @@ message AckBatch {
   repeated ConversationAck conversation_acks = 3;
   repeated EventAck event_acks = 4;
   optional string device_id = 5;
-  map<string, string> metadata = 6;
+  map<string, string> attributes = 6;
+  repeated ReadAck read_acks = 7;
 }

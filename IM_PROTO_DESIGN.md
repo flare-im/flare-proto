@@ -93,7 +93,7 @@ common/
 
 **依赖顺序（无环）**：enums → message_content；message → message_content；models → enums, message_content；event → enums, message；sync → event, conversation；transport_data 仅定义 CustomPushData，无依赖。
 
-- 服务层（message.proto RPC、conversation.proto、access_gateway.proto、push.proto、online.proto、router.proto、storage.proto、hooks.proto、media.proto）仅定义 RPC 与专属 Request/Response，身份与错误复用 common。
+- 服务层（message.proto RPC、conversation.proto、access_gateway.proto、push.proto、online.proto、router.proto、storage.proto、capability_service.proto（含 HookExtension / HookService）、media.proto）仅定义 RPC 与专属 Request/Response，身份与错误复用 common。
 
 ### 6.1 服务边界（与白皮书三条流对齐）
 
@@ -106,7 +106,8 @@ common/
 | **OnlineService** (online.proto) | 连接生命周期（Login/Logout/Heartbeat）、在线状态与设备；Router 选端依赖 | §2.4 |
 | **PushService** (push.proto) | 消息/通知推送、模板、调度、ACK；消费 push.tasks，调 Router 选端 | §4.1 |
 | **AccessGateway** (access_gateway.proto) | 业务系统→客户端推送、连接查询、信令 Pub/Sub | Gateway 无状态代理 |
-| **HookExtension / HookService** (hooks.proto) | 消息/推送/会话/在线生命周期 Hook 执行与配置 | §4.1 hook.requests |
+| **HookExtension / HookService**（`capability_service.proto`，包 `flare.capability.v1`） | 消息/推送/会话/在线生命周期 Hook 执行与配置 | §4.1 hook.requests |
+| **CapabilityService**（同上 proto，包 `flare.capability.v1`） | 能力目录、用户授权、租户开关、能力命令分发（如 RTC） | SDK / 网关 → flare-capability |
 | **MediaService** (media.proto) | 上传/下载、分片、引用、图片视频处理、ACL/桶 | 查询流可直连 |
 
 ---

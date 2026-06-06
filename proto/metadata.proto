@@ -2,14 +2,9 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
+// 时间约定：所有 int64 时间点字段均为 Unix epoch milliseconds；duration/rtt/retry_delay 等时间量保留单位后缀。
 
-/// =============================================================================
-/// 核心上下文（IM 主链路：必须极简）
-/// 说明：
-/// - 优先通过 gRPC metadata 传递（x-request-id / x-trace-id / x-user-id / x-tenant-id）
-/// - 仅在长连接首包 / 特殊场景下放入 body
-/// =============================================================================
+// 核心上下文；优先走 gRPC metadata（x-trace-id / x-user-id / x-tenant-id 等）。
 message CoreContext {
   string request_id = 1;
   string trace_id = 2;
@@ -21,9 +16,7 @@ message CoreContext {
   string platform = 6; // ios/android/web/pc
 }
 
-/// =============================================================================
-/// 扩展上下文（按需使用，不进主链路）
-/// =============================================================================
+// 扩展上下文（按需，不进主链路）。
 message ExtendedContext {
   map<string, string> attributes = 1;
 }
@@ -47,9 +40,7 @@ message ActorContext {
 }
 
 
-/// =============================================================================
 /// 推送专用设备上下文（仅 Push / 在线状态使用）
-/// =============================================================================
 message DeviceContext {
   string device_id = 1;
   string platform = 2;
@@ -59,15 +50,12 @@ message DeviceContext {
 /// 审计上下文（敏感操作记录）
 message AuditContext {
   ActorContext actor = 1;
-  google.protobuf.Timestamp operated_at = 2;
+  optional int64 operated_at = 2;
   string reason = 3;
-  map<string, string> metadata = 4;
+  map<string, string> attributes = 4;
 }
-/// =============================================================================
-/// 通用结构
-/// =============================================================================
 
-/// 设备优先级（多端推送选端：BEST_DEVICE 等）
+// 设备优先级（多端推送选端）。
 enum DevicePriority {
   DEVICE_PRIORITY_UNSPECIFIED = 0;
   DEVICE_PRIORITY_LOW = 1;      /// 后台/离线
@@ -80,7 +68,7 @@ enum DevicePriority {
 message ConnectionQuality {
   int64 rtt_ms = 1;
   double packet_loss_rate = 2;
-  int64 last_measure_ts = 3;
+  int64 last_measured_at = 3;
   string network_type = 4;   /// wifi/4g/5g
   int32 signal_strength = 5;
 }
@@ -120,8 +108,8 @@ message FilterExpression {
 
 /// 时间范围（存储 §3.4 按 time range 查询）
 message TimeRange {
-  google.protobuf.Timestamp start_time = 1;
-  google.protobuf.Timestamp end_time = 2;
+  optional int64 start_time = 1;
+  optional int64 end_time = 2;
 }
 
 /// 分页（cursor/limit/has_more；Sync、历史消息、会话列表通用）
@@ -143,7 +131,5 @@ message MediaAttachment {
   string cdn_url = 6;
   int64 duration_ms = 7;
   string checksum = 8;
-  map<string, string> metadata = 9;
+  map<string, string> attributes = 9;
 }
-
-

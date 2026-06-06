@@ -3,8 +3,8 @@
 //! 提供统一的、高性能的 MessageContent 编码/解码方法
 //! 使用 simd-json 优化 JSON 处理（如果需要）
 
-use prost::Message as ProstMessage;
 use crate::common::MessageContent;
+use prost::Message as ProstMessage;
 
 /// MessageContent 扩展 trait
 ///
@@ -52,16 +52,22 @@ impl MessageContentExt for MessageContent {
     }
 }
 
-/// 从 Message 中取出 content 字节（Message.content 即已序列化的 MessageContent）
+/// 从 Message 中编码 typed content 字节。
 ///
 /// # 参数
 /// - `message: &crate::common::Message` - 含 content 字段的 Message
 ///
 /// # 返回
-/// - `Vec<u8>` - content 字节（空则返回空 Vec）
+/// - `Ok(Vec<u8>)` - content 字节（空则返回空 Vec）
+/// - `Err(prost::EncodeError)` - 编码失败
 #[inline]
-pub fn encode_message_content(message: &crate::common::Message) -> Vec<u8> {
-    message.content.clone()
+pub fn encode_message_content(
+    message: &crate::common::Message,
+) -> Result<Vec<u8>, prost::EncodeError> {
+    match &message.content {
+        Some(content) => content.encode_to_bytes(),
+        None => Ok(Vec::new()),
+    }
 }
 
 /// 从字节数组解码为 MessageContent
@@ -84,15 +90,16 @@ pub fn decode_message_content(bytes: &[u8]) -> Result<MessageContent, prost::Dec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{message_content::Content, TextContent};
+    use crate::common::{TextContent, message_content::Content};
 
     #[test]
     fn test_encode_decode() {
-        let mut content = MessageContent::default();
-        content.content = Some(Content::Text(TextContent {
-            text: "Hello, World!".to_string(),
-            mentions: Vec::new(),
-        }));
+        let content = MessageContent {
+            content: Some(Content::Text(TextContent {
+                text: "Hello, World!".to_string(),
+                mentions: Vec::new(),
+            })),
+        };
 
         let encoded = content.encode_to_bytes().unwrap();
         assert!(!encoded.is_empty());
@@ -109,7 +116,7 @@ mod tests {
     #[test]
     fn test_encode_message_content_none() {
         let message = crate::common::Message::default();
-        let encoded = encode_message_content(&message);
+        let encoded = encode_message_content(&message).unwrap();
         assert!(encoded.is_empty());
     }
 }

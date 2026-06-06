@@ -4,33 +4,59 @@ package flare.common.v1;
 
 import "sync.proto";
 
-// =============================================================================
-// DATA 通道：控制面/扩展面载荷（不占会话 seq、不落事件表）
-// =============================================================================
-// 与 ack / event / message 分离：本文件仅用于 PayloadCommand.DATA。
-// 约定：
-// - 同步控制面（Sync/SyncRes）走 DATA，不再复用 EVENT_SYNC。
-// - 用户自定义扩展走 USER_CUSTOM。
-
-enum DataKind {
-  DATA_KIND_UNSPECIFIED = 0;
-  DATA_KIND_SYNC_REQUEST = 1;
-  DATA_KIND_SYNC_RESPONSE = 2;
-  DATA_KIND_USER_CUSTOM = 3;
-}
+// DATA 通道载荷（不占 conversation_seq）。payload oneof 是唯一类型判别。
 
 message CustomData {
   string type = 1;       // 业务类型标识，如 "badge" / "config"
   bytes payload = 2;     // 业务载荷
-  map<string, string> metadata = 3;
+  map<string, string> attributes = 3;
 }
 
-/// DATA 统一包：SDK 与网关统一按 kind 解析
+message CapabilityPacket {
+  string capability_id = 1;  // e.g. rtc.call | bot.command | workflow.approval
+  string packet_type = 2;    // plugin-owned action/type
+  string version = 3;
+  bytes payload = 4;         // plugin-owned protobuf/JSON bytes
+  map<string, string> attributes = 5;
+  optional string correlation_id = 6;
+}
+
+message TypingStatePacket {
+  string conversation_id = 1;
+  string user_id = 2;
+  bool typing = 3;
+  optional string device_id = 4;
+  optional int64 occurred_at = 5;
+}
+
+message PresenceHintPacket {
+  string user_id = 1;
+  string status = 2;  // online | offline | away | busy | custom
+  optional string device_id = 3;
+  map<string, string> attributes = 4;
+  optional int64 occurred_at = 5;
+}
+
+message RealtimeControlPacket {
+  string control_type = 1;  // typing | presence | custom
+  optional string conversation_id = 2;
+  optional string correlation_id = 3;
+  map<string, string> attributes = 4;
+
+  oneof payload {
+    TypingStatePacket typing = 10;
+    PresenceHintPacket presence = 11;
+    CustomData custom = 12;
+  }
+}
+
+/// DATA 统一包：SDK 与网关按 payload oneof 解析。
 message DataPacket {
-  DataKind kind = 1;
   oneof payload {
     Sync sync_request = 10;
     SyncRes sync_response = 11;
     CustomData user_custom = 12;
+    CapabilityPacket capability = 13;
+    RealtimeControlPacket realtime_control = 14;
   }
 }

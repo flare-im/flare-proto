@@ -2,15 +2,10 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
 import "enums.proto";
 import "message_content.proto";
 
-// =============================================================================
-// 查询读模型（由事件流产生，按需查询返回）
-// =============================================================================
-// Pin/Reaction/Mark/Edit/Thread 等事件写入旁路表后，读服务（如 Storage Reader）按需查询时返回下列类型。
-// 事件定义见 event.proto（EVENT_PIN、EVENT_REACTION、EVENT_MARK、MessageEditEvent 等）。
+// 查询读模型（事件流投影）。事件定义见 event.proto。
 
 enum ThreadStatus {
   THREAD_STATUS_UNSPECIFIED = 0;
@@ -25,19 +20,19 @@ message ThreadInfo {
   string root_message_id = 3;  // 根消息（话题入口）server_id
   string title = 4;  // 话题标题
   int32 reply_count = 5;  // 回复数
-  google.protobuf.Timestamp last_reply_at = 6;  // 最后回复时间
+  int64 last_reply_at = 6;  // 最后回复时间
   repeated string participants = 7;  // 参与用户 ID 列表（可选）
   ThreadStatus status = 8;  // 话题状态
-  google.protobuf.Timestamp created_at = 9;
-  google.protobuf.Timestamp updated_at = 10;
+  int64 created_at = 9;
+  int64 updated_at = 10;
 }
 
 message PinnedMessageInfo {
   string message_id = 1;  // 被置顶消息的 server_id
   string conversation_id = 2;  // 会话 ID
   string pinned_by = 3;  // 置顶操作者 user_id
-  google.protobuf.Timestamp pinned_at = 4;  // 置顶时间
-  google.protobuf.Timestamp expire_at = 5;  // 过期时间（空=长期）
+  int64 pinned_at = 4;  // 置顶时间
+  optional int64 expire_at = 5;  // 过期时间（空=长期）
   string reason = 6;  // 置顶说明
 }
 
@@ -47,13 +42,13 @@ message MarkedMessageInfo {
   string conversation_id = 3;  // 会话 ID
   MarkType mark_type = 4;  // 重要/待办/已处理/自定义
   string color = 5;  // 自定义颜色
-  google.protobuf.Timestamp marked_at = 6;  // 标记时间
+  int64 marked_at = 6;  // 标记时间
 }
 
 message EditHistory {
   int32 edit_version = 1;  // 编辑版本号
   MessageContent content = 2;  // 该版本的消息内容
-  google.protobuf.Timestamp edited_at = 3;  // 编辑时间
+  int64 edited_at = 3;  // 编辑时间
   string editor_id = 4;  // 编辑者 user_id
   string reason = 5;  // 编辑原因（可选）
   bool show_edited_mark = 6;  // 是否展示「已编辑」
@@ -63,6 +58,6 @@ message Reaction {
   string emoji = 1;  // 表情标识（如 👍）
   repeated string user_ids = 2;  // 点了该表情的用户 ID 列表（可选，大群可只返回 count）
   int32 count = 3;  // 该表情被点击次数
-  google.protobuf.Timestamp last_updated = 4;  // 最后更新时间
-  google.protobuf.Timestamp created_at = 5;  // 首次添加时间
+  int64 updated_at = 4;  // 最后更新时间
+  int64 created_at = 5;  // 首次添加时间
 }

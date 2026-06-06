@@ -2,16 +2,9 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-// =============================================================================
-// 共享枚举（Message / Session BC 事件与读模型共用）- 飞书风格语义
-// =============================================================================
-// 供 event.proto 等使用，避免 event ↔ message 循环依赖。
-// 删除/已读/反应/标记 与飞书 IM 能力对齐。
+// 共享枚举（避免 event ↔ message 循环依赖）。
 
-/// 会话类型（与 flare-core/src/common/conversation.rs ConversationType、CID 前缀对齐）
-/// 设计原则：
-/// - 枚举值与 CID TypePrefix 一致
-/// - 与 flare-core/src/common/conversation.rs 严格对齐
+// 会话类型，与 CID TypePrefix 对齐。
 enum ConversationType {
   CONVERSATION_TYPE_UNSPECIFIED = 0;  // 未指定
   CONVERSATION_TYPE_SINGLE = 1;       // 单聊（CID 前缀 1）
@@ -36,14 +29,14 @@ enum DeleteScope {
   DELETE_SCOPE_CONVERSATION_GLOBAL = 2;   /// 会话内全员（如管理员删消息）
 }
 
-/// 反应操作：添加/移除（飞书 style emoji reaction）
+/// 反应操作：添加/移除（emoji 等）
 enum ReactionAction {
   REACTION_ACTION_UNSPECIFIED = 0;
   REACTION_ACTION_ADD = 1;
   REACTION_ACTION_REMOVE = 2;
 }
 
-/// 标记类型：重要/待办/已处理/自定义（飞书 标记消息）
+/// 标记类型：重要/待办/已处理/自定义
 enum MarkType {
   MARK_TYPE_UNSPECIFIED = 0;
   MARK_TYPE_IMPORTANT = 1;

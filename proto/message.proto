@@ -2,27 +2,20 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
-import "metadata.proto";
 import "message_content.proto";
 import "enums.proto";  // ConversationType
 
-// =============================================================================
-// Flare IM 消息协议（基座：简洁、通用、可扩展）
-// =============================================================================
-// 时间线/已读/反应/编辑历史/可见性等按需由事件流与独立接口提供（见 event.proto 消息操作读模型、各服务 RPC）。
+// 消息协议。时间线/投递/已读/反应等见 event.proto 与各服务 RPC。
 
-// 消息状态（FSM）
+// 消息状态（author / persistence lifecycle）。投递与已读是用户维度事件/读模型，不进入本 FSM。
 enum MessageStatus {
   MESSAGE_STATUS_UNSPECIFIED = 0;
   MESSAGE_STATUS_CREATED = 1; // 已创建
-  MESSAGE_STATUS_SENT = 2; // 已发送（正常态，可编辑）
-  MESSAGE_STATUS_DELIVERED = 3; // 已送达
-  MESSAGE_STATUS_READ = 4; // 已读
-  MESSAGE_STATUS_FAILED = 5; // 发送失败
-  MESSAGE_STATUS_RECALLED = 6; // 已撤回（终态）
-  MESSAGE_STATUS_DELETED_HARD = 7; // 已硬删除（终态，仅管理员）
-  MESSAGE_STATUS_DELETED_SOFT = 8; // 已软删除（用户维度，可恢复）
+  MESSAGE_STATUS_SENT = 2; // 已被服务端接受，进入持久化/分发路径
+  MESSAGE_STATUS_PERSISTED = 3; // 已持久化，可被 sync/replay 读取
+  MESSAGE_STATUS_FAILED = 4; // 发送失败
+  MESSAGE_STATUS_RECALLED = 5; // 已撤回（终态）
+  MESSAGE_STATUS_DELETED = 6; // 已删除（具体作用域见 MessageDeleteEvent）
 }
 
 // 消息来源
@@ -34,10 +27,7 @@ enum MessageSource {
   MESSAGE_SOURCE_ADMIN = 4; // 管理员消息
 }
 
-// =============================================================================
-// 消息类型枚举
-// =============================================================================
-// 区间：0 未指定；1-29 基础内容；30-59 富媒体；60-79 系统/通知；80-99 平台推荐；100 自定义；101-115 平台能力。
+// 消息类型枚举。Common 仅保留通用可渲染类型；业务/插件能力走 AppCardContent 或 CustomContent。
 
 enum MessageType {
   MESSAGE_TYPE_UNSPECIFIED = 0;  // 未指定类型
@@ -50,25 +40,17 @@ enum MessageType {
   MESSAGE_TYPE_CARD = 7;  // 名片（联系人/群）
   MESSAGE_TYPE_STICKER = 8;  // 表情贴纸
   MESSAGE_TYPE_EMOJI = 9;  // 表情符号
-  MESSAGE_TYPE_LINK_CARD = 11;  // 链接预览卡片
-  MESSAGE_TYPE_MERGE_FORWARD = 12;  // 合并转发消息
-  MESSAGE_TYPE_MINI_PROGRAM = 13;  // 小程序/应用卡片
-  MESSAGE_TYPE_THREAD = 14;  // 话题/子线程根消息
-  MESSAGE_TYPE_QUOTE = 15;  // 引用回复
-  MESSAGE_TYPE_RICH_TEXT = 30;  // 富文本：Rich Doc 主存储（Markdown/HTML/编辑器均归一化为此）
-  MESSAGE_TYPE_IMAGE_GROUP = 32;  // 多图/图组
-  MESSAGE_TYPE_SYSTEM = 60;  // 通用系统消息：入群/退群/踢人/解散等由 SystemContent.event_kind 区分
-  MESSAGE_TYPE_NOTIFICATION = 61;  // 会话内通知：可推送、角标
-  MESSAGE_TYPE_POLL = 80;  // 投票
-  MESSAGE_TYPE_TASK = 81;  // 任务
-  MESSAGE_TYPE_SCHEDULE = 82;  // 日程/会议
-  MESSAGE_TYPE_ANNOUNCEMENT = 83;  // 公告
-  MESSAGE_TYPE_CUSTOM = 100;  // 业务自定义：CustomContent.type + payload，如红包、转账、打卡等
-  MESSAGE_TYPE_E2E_PLACEHOLDER = 111;  // 端到端加密占位（密文由客户端解密后替换）
-  MESSAGE_TYPE_DECRYPT_FAILED = 112;  // 解密失败占位（无法解密时展示）
-  MESSAGE_TYPE_EXTERNAL = 113;  // 外部系统/第三方导入
-  MESSAGE_TYPE_IMPORTED = 114;  // 历史导入消息
-  MESSAGE_TYPE_MIGRATION = 115;  // 迁移/同步产生的消息
+  MESSAGE_TYPE_LINK_CARD = 10;  // 链接预览卡片
+  MESSAGE_TYPE_FORWARD = 11;  // 单条/合并转发消息
+  MESSAGE_TYPE_THREAD = 12;  // 话题/子线程根消息
+  MESSAGE_TYPE_QUOTE = 13;  // 引用回复
+  MESSAGE_TYPE_APP_CARD = 14;  // 通用应用卡片
+  MESSAGE_TYPE_RICH_TEXT = 15;  // 富文本：Rich Doc 主存储（Markdown/HTML/编辑器均归一化为此）
+  MESSAGE_TYPE_IMAGE_GROUP = 16;  // 多图/图组
+  MESSAGE_TYPE_SYSTEM = 17;  // 通用系统消息：入群/退群/踢人/解散等由 SystemContent.event_kind 区分
+  MESSAGE_TYPE_NOTIFICATION = 18;  // 会话内通知：可推送、角标
+  MESSAGE_TYPE_CUSTOM = 19;  // 业务自定义：CustomContent.type + payload，如红包、转账、打卡等
+  MESSAGE_TYPE_PLACEHOLDER = 20;  // 加密/解密失败/导入/迁移等占位展示
 }
 
 enum DiffusionStrategy {
@@ -76,35 +58,85 @@ enum DiffusionStrategy {
   DIFFUSION_STRATEGY_READ = 1;  // 读扩散（一会话一流，当前唯一策略）
 }
 
-// MessagePreview 定义在 common/message_content.proto（type 为 int32，与 MessageType 枚举值一致）
-// ----------------------------------------------------------------------------
-// 核心消息结构（基座）
-// ----------------------------------------------------------------------------
+enum RetentionMode {
+  RETENTION_MODE_UNSPECIFIED = 0;
+  RETENTION_MODE_NONE = 1;
+  RETENTION_MODE_TIME_TO_LIVE = 2;
+  RETENTION_MODE_AFTER_READ = 3;
+  RETENTION_MODE_ON_DEMAND = 4;
+}
 
-// 消息（基座：身份 + 顺序 + 类型与内容 + 状态 + 扩展）
+enum RetentionTrigger {
+  RETENTION_TRIGGER_UNSPECIFIED = 0;
+  RETENTION_TRIGGER_NONE = 1;
+  RETENTION_TRIGGER_AFTER_CREATE = 2;
+  RETENTION_TRIGGER_AFTER_READ = 3;
+  RETENTION_TRIGGER_AT_ABSOLUTE_TIME = 4;
+  RETENTION_TRIGGER_MANUAL = 5;
+}
+
+enum ContentVisibility {
+  CONTENT_VISIBILITY_UNSPECIFIED = 0;
+  CONTENT_VISIBILITY_AVAILABLE = 1;
+  CONTENT_VISIBILITY_HIDDEN = 2;
+  CONTENT_VISIBILITY_REDACTED = 3;
+  CONTENT_VISIBILITY_PURGED = 4;
+}
+
+enum MessageRetentionLifecycle {
+  MESSAGE_RETENTION_LIFECYCLE_UNSPECIFIED = 0;
+  MESSAGE_RETENTION_LIFECYCLE_NONE = 1;
+  MESSAGE_RETENTION_LIFECYCLE_ACTIVE = 2;
+  MESSAGE_RETENTION_LIFECYCLE_SCHEDULED = 3;
+  MESSAGE_RETENTION_LIFECYCLE_EXPIRED = 4;
+  MESSAGE_RETENTION_LIFECYCLE_PURGED = 5;
+}
+
+message MessageRetentionPolicy {
+  RetentionMode mode = 1;
+  RetentionTrigger trigger = 2;
+  optional int64 expire_after_seconds = 3;
+  optional int64 expire_at = 4;
+  ContentVisibility visibility_after_expiration = 5;
+  map<string, string> attributes = 50;
+}
+
+message MessageRetentionState {
+  MessageRetentionLifecycle lifecycle = 1;
+  ContentVisibility content_visibility = 2;
+  optional int64 first_triggered_at = 3;
+  optional int64 expire_at = 4;
+  optional int64 expired_at = 5;
+  optional int64 purged_at = 6;
+  optional string triggered_by_user_id = 7;
+}
+
+// MessagePreview 见 message_content.proto。
+
 message Message {
   string server_id = 1;  // 服务端消息 ID（全局唯一）
   string conversation_id = 2;  // 会话 ID
   string client_msg_id = 3;  // 客户端消息 ID（去重幂等）
   string sender_id = 4;  // 发送者 ID
   MessageSource source = 5;  // 消息来源（用户/系统/机器人/管理员）
-  uint64 seq = 6;  // 会话内序列号（读扩散：一会话一流）
-  google.protobuf.Timestamp timestamp = 7;  // 时间戳
+  uint64 conversation_seq = 6;  // 会话内持久化 replay 序列号
+  int64 created_at = 7;  // 创建时间，Unix epoch millis
   ConversationType conversation_type = 8; // 会话类型（单聊/群聊/频道）
   MessageType message_type = 9;  // 消息类型（与 content 解析方式对应）
+  optional uint64 message_seq = 10;  // 仅消息创建记录拥有的排序辅助序列，可相对 conversation_seq 有空洞
   string channel_id = 12;  // 会话频道 ID：单聊=对方 user_id，群聊=群 ID，频道/话题=对应 ID
   string sender_name = 13;  // 发送者昵称（展示用，可选）
   string sender_avatar = 14;  // 发送者头像 URL（展示用，可选）
-  bytes content = 20;  // 消息体：message_content.proto 中 MessageContent 的 protobuf 编码（与 message_type 一致）
+  MessageContent content = 20;  // 强类型消息体（与 message_type 一致）
   MessageStatus status = 30;  // 消息状态（含已撤回等，见 MessageStatus）
+  MessageRetentionPolicy retention_policy = 40;  // 保留/过期策略
+  MessageRetentionState retention_state = 41;  // 保留/过期生命周期
   optional OfflinePushInfo offline_push_info = 61;  // 离线推送展示（可选）
-  map<string, string> extra = 23;  // 扩展键值（conversation_type、business_type、thread_id 等）
+  map<string, string> attributes = 23;  // 非稳定扩展键值；核心语义必须使用 typed fields
   map<string, bytes> extensions = 1000;  // 业务扩展（key 建议命名空间，如 biz.xxx）
 }
 
-// -----------------------------------------------------------------------------
 // 下行
-// -----------------------------------------------------------------------------
 /// 推送消息和通知
 message MessagePush {
   repeated Message messages = 1;       // 消息
@@ -122,15 +154,15 @@ message OfflinePushInfo {
 
 // 消息时间线（持久化/投递/已读等，SendMessageResponse 等按需返回）
 message MessageTimeline {
-  google.protobuf.Timestamp created_at = 1;    // 创建时间
-  google.protobuf.Timestamp persisted_at = 2;  // 持久化完成时间
-  google.protobuf.Timestamp delivered_at = 3;  // 投递时间
-  google.protobuf.Timestamp read_at = 4;       // 已读时间
+  int64 created_at = 1;    // 创建时间
+  optional int64 persisted_at = 2;  // 持久化完成时间
+  optional int64 delivered_at = 3;  // 投递时间
+  optional int64 read_at = 4;       // 已读时间
 }
 
 // 单条已读记录（GetReadReceipts / 已读列表查询）
 message MessageReadRecord {
   string user_id = 1;                          // 已读用户 ID
-  google.protobuf.Timestamp read_at = 2;       // 已读时间
-  optional google.protobuf.Timestamp burned_at = 3;  // 阅后即焚已烧毁时间（可选）
+  int64 read_at = 2;       // 已读时间
+  optional int64 retention_expired_at = 3;  // 内容因 retention 过期的时间（可选）
 }

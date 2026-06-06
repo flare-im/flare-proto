@@ -2,18 +2,10 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
 
-// =============================================================================
-// 白皮书配套 Schema：存储分片与游标、会话限流（飞书风格）
-// =============================================================================
-// 同步 API 见 common/sync.proto。
+// 存储分片与游标；同步 API 见 sync.proto。
 
-// -----------------------------------------------------------------------------
-// §3 10 亿级存储：分片与游标
-// -----------------------------------------------------------------------------
-
-/// 存储分片键（读扩散：一会话一流，按会话分片）
+// 存储分片键（按会话分片）
 message StorageShardKey {
   string tenant_id = 1;
   string conversation_id = 2;
@@ -24,7 +16,7 @@ message StorageShardKey {
 message StorageCursor {
   string conversation_id = 1;
   uint64 seq = 2;
-  google.protobuf.Timestamp created_at = 3;
+  int64 created_at = 3;
   string cursor_token = 4;
 }
 
@@ -33,15 +25,13 @@ message StorageRangeQuery {
   string conversation_id = 1;
   uint64 from_seq = 2;
   uint64 to_seq = 3;
-  google.protobuf.Timestamp from_time = 4;
-  google.protobuf.Timestamp to_time = 5;
+  optional int64 from_time = 4;
+  optional int64 to_time = 5;
   int32 limit = 6;
   string cursor = 7;
 }
 
-// -----------------------------------------------------------------------------
-// 会话限流与推送策略（可选，飞书风格）
-// -----------------------------------------------------------------------------
+// 会话限流与推送策略（可选）
 
 message ConversationStreamConfig {
   string conversation_id = 1;

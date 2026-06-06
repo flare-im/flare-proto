@@ -21,13 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 return Ok(());
             } else {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!(
-                        "Failed to compile protobuf files: {}. Please install protoc: brew install protobuf",
-                        e
-                    ),
-                )));
+                return Err(Box::new(std::io::Error::other(format!(
+                    "Failed to compile protobuf files: {}. Please install protoc: brew install protobuf",
+                    e
+                ))));
             }
         } else {
             return Err(e);
@@ -44,7 +41,6 @@ const PROTO_FILES: &[&str] = &[
     "proto/message_content.proto",
     "proto/message.proto",
     "proto/models.proto",
-    "proto/call_signal.proto",
     "proto/event.proto",
     "proto/event_bus_envelope.proto",
     "proto/ack.proto",

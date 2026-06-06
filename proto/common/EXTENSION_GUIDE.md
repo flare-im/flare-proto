@@ -4,7 +4,7 @@
 
 ## 0. 内容格式约定
 
-- **Message.content** 为 **bytes**：即 `MessageContent`（见 message_content.proto）的 protobuf 序列化。按 `message_type` 反序列化（如 TEXT→TextContent，IMAGE→ImageContent）。
+- **Message.content** 为强类型 `MessageContent`（见 message_content.proto）。`message_type` 与 oneof 变体保持一致（如 TEXT→TextContent，IMAGE→ImageContent）。
 - **不再使用 ContentType 枚举**：文本/富媒体「格式」由 **MessageType** 唯一表达（如 TEXT=纯文本，MARKDOWN=Markdown，RICH_TEXT=富文本）。存储或展示时可根据 `message_type` 推断 MIME（如 1→text/plain，31→text/markdown）。
 
 ## 1. 系统事件（入群 / 退群 / 解散等）
@@ -29,7 +29,7 @@
 - `message_type` = `MESSAGE_TYPE_SYSTEM`
 - `content.system.event_kind` = `"group.member_joined"`
 - `content.system.body` = `"张三加入了群聊"`
-- `content.system.data` = `{"user_id": "u1", "operator_id": "u2"}`
+- `content.system.attributes` = `{"user_id": "u1", "operator_id": "u2"}`
 
 ## 2. 业务自定义（红包 / 转账 / 打卡等）
 

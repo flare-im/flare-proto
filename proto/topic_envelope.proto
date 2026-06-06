@@ -3,24 +3,10 @@ syntax = "proto3";
 package flare.common.v1;
 
 import "event.proto";
+import "errors.proto";
 import "message.proto";
 
-// =============================================================================
-// MQ Topic 信封（与底层实现无关：Kafka / NATS / Pulsar / RocketMQ 等）
-// =============================================================================
-// Topic 名称由部署配置指定；本文件只定义载荷结构。
-//
-// 【主队列模型】单 Topic（如 flare.im.message.main）统一投递：
-//   - 读扩散：分区键 = conversation_id（一会话一流，保证 seq 单调）
-//   - 载荷二选一：完整 Message 或领域 Event
-//   - recipient_user_ids：投递/推送目标用户（编排侧扇出列表）
-// tenant_id / trace_id / request_id 等由外层 EventEnvelope、MQ 头或调用链 Ctx 传递，不入此 proto。
-// Push 的 options 等细粒度字段仍可走独立 Push Topic。
-// 旧版 MessageEnvelope / TopicEventEnvelope 仍保留，供专用 Topic 选用。
-
-// -----------------------------------------------------------------------------
-// 主 MQ 统一信封
-// -----------------------------------------------------------------------------
+// MQ 信封。主 Topic 分区键 conversation_id；payload 为 Message 或 Event；trace/tenant 走 MQ 头或 Ctx。
 
 enum MqPayloadKind {
   MQ_PAYLOAD_KIND_UNSPECIFIED = 0;
@@ -28,13 +14,13 @@ enum MqPayloadKind {
   MQ_PAYLOAD_KIND_EVENT = 2;
 }
 
-/// 主 MQ 记录：`Message` 与 `Event` 二选一；含接收者用户 ID 列表。
+/// 主 MQ 记录：`Message` 或 `Event`（由 oneof 保证单选）；含接收者用户 ID 列表。
 message MqEnvelope {
   string envelope_id = 1;
   repeated string recipient_user_ids = 2;
   string conversation_id = 3;
   uint64 seq = 4;
-  int64 produced_at_ms = 5;
+  int64 produced_at = 5;
   MqPayloadKind payload_kind = 6;
   map<string, string> headers = 7;
 
@@ -48,18 +34,14 @@ message MqEnvelope {
   }
 }
 
-// =============================================================================
-// 专用 / 历史信封（可选用独立 Topic）
-// =============================================================================
-
 message MessageEnvelope {
   string conversation_id = 1;
   Message message = 2;
   bool sync = 3;
-  map<string, string> tags = 4;
-  map<string, string> metadata = 5;
+  map<string, string> attributes = 4;
+  map<string, string> headers = 5;
   string event_type = 6;
-  int64 created_at_ms = 7;
+  int64 created_at = 7;
   string tenant_id = 8;
 }
 
@@ -87,9 +69,9 @@ message PushTaskEnvelope {
   string conversation_id = 3;
   string tenant_id = 4;
   int32 priority = 5;
-  int64 expire_at_ms = 6;
+  optional int64 expire_at = 6;
   bytes push_payload = 7;
-  map<string, string> metadata = 8;
+  map<string, string> headers = 8;
   PushTaskPayloadKind payload_kind = 9;
 }
 
@@ -101,17 +83,12 @@ message ConversationUpdateEnvelope {
   uint64 max_seq = 5;
   uint64 last_read_seq = 6;
   bytes summary_snapshot = 7;
-  map<string, string> metadata = 8;
-  int64 updated_at_ms = 9;
+  map<string, string> attributes = 8;
+  int64 updated_at = 9;
 }
 
-// =============================================================================
-// 统一推送信封（Unified Push Envelope）
-// =============================================================================
-// 用于 ACK、通知、CustomData、系统消息的统一推送格式
-// 不需要存储，仅通过 MQ 传递到 Push Server 执行推送
+// PushEnvelope：ACK/通知/自定义/系统消息，经 MQ 到 Push Server，不落库。
 
-// 推送目标类型
 enum PushTargetType {
   PUSH_TARGET_TYPE_UNSPECIFIED = 0;
   PUSH_TARGET_TYPE_ALL = 1;          // 全量推送（所有在线设备）
@@ -131,11 +108,11 @@ enum PushPayloadKind {
 // 推送选项
 message PushOptions {
   int32 priority = 1;                // 优先级（0-9，默认5）
-  int64 expire_at_ms = 2;            // 过期时间（毫秒时间戳）
+  optional int64 expire_at = 2;       // 过期时间
   bool require_ack = 3;              // 是否需要客户端确认
   int32 retry_count = 4;             // 重试次数
   int32 retry_delay_ms = 5;          // 重试延迟（毫秒）
-  map<string, string> extra = 6;     // 扩展字段
+  map<string, string> attributes = 6; // 扩展字段
 }
 
 // ACK 载荷
@@ -144,7 +121,7 @@ message AckPayload {
   string conversation_id = 2;        // 会话ID
   uint64 seq = 3;                    // 序列号
   string ack_type = 4;               // ACK类型（received、read、played）
-  int64 ack_at_ms = 5;               // ACK时间
+  int64 ack_at = 5;                  // ACK时间
 }
 
 // 通知载荷
@@ -155,16 +132,16 @@ message NotificationPayload {
   string icon = 4;                   // 图标URL
   string sound = 5;                  // 提示音
   string click_action = 6;           // 点击动作
-  map<string, string> data = 7;      // 自定义数据
-  int64 created_at_ms = 8;           // 创建时间
+  map<string, string> attributes = 7; // 自定义数据
+  int64 created_at = 8;              // 创建时间
 }
 
 // 自定义数据载荷
 message CustomPayload {
   string custom_type = 1;            // 自定义类型
   bytes custom_data = 2;             // 自定义数据（二进制）
-  map<string, string> metadata = 3;  // 元数据
-  int64 created_at_ms = 4;           // 创建时间
+  map<string, string> attributes = 3; // 元数据
+  int64 created_at = 4;              // 创建时间
 }
 
 // 系统消息载荷
@@ -172,16 +149,15 @@ message SystemPayload {
   string system_type = 1;            // 系统消息类型
   string title = 2;                  // 标题
   string content = 3;                // 内容
-  map<string, string> params = 4;    // 参数
-  int64 created_at_ms = 5;           // 创建时间
+  map<string, string> attributes = 4; // 参数
+  int64 created_at = 5;              // 创建时间
 }
 
-// 统一推送信封
 message PushEnvelope {
   string envelope_id = 1;            // 信封ID（唯一标识）
   string tenant_id = 2;              // 租户ID
   string trace_id = 3;               // 追踪ID
-  int64 created_at_ms = 4;           // 创建时间
+  int64 created_at = 4;              // 创建时间
 
   // 推送目标
   PushTargetType target_type = 5;    // 目标类型
@@ -204,13 +180,22 @@ message PushEnvelope {
   map<string, string> headers = 14;  // 头信息（用于上下文传播）
 }
 
+message PushDelivered {
+  int64 pushed_at = 1;               // 推送时间
+}
+
+message PushFailed {
+  ErrorDetail error = 1;             // 结构化错误
+  int64 failed_at = 2;               // 失败时间
+}
+
 // 推送结果
 message PushResult {
   string envelope_id = 1;            // 信封ID
   string device_id = 2;              // 设备ID
   string user_id = 3;                // 用户ID
-  bool success = 4;                  // 是否成功
-  string error_code = 5;             // 错误码
-  string error_message = 6;          // 错误消息
-  int64 pushed_at_ms = 7;            // 推送时间
+  oneof result {
+    PushDelivered delivered = 10;    // 推送成功
+    PushFailed failed = 11;          // 推送失败
+  }
 }

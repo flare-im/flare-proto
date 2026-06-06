@@ -6,8 +6,6 @@
 
 use std::collections::HashMap;
 
-use prost_types::Timestamp;
-
 use crate::common::{
     ActorContext, ActorType, AuditContext, DeviceContext, DevicePriority, FilterExpression,
     FilterOperator, Pagination, SortDirection, SortExpression, TimeRange,
@@ -63,7 +61,10 @@ pub fn actor_tenant_admin(actor_id: impl Into<String>) -> ActorContext {
 
 /// 为 ActorContext 添加 roles（返回新实例，便于链式调用）
 #[inline]
-pub fn actor_with_roles(mut actor: ActorContext, roles: impl IntoIterator<Item = impl Into<String>>) -> ActorContext {
+pub fn actor_with_roles(
+    mut actor: ActorContext,
+    roles: impl IntoIterator<Item = impl Into<String>>,
+) -> ActorContext {
     actor.roles = roles.into_iter().map(Into::into).collect();
     actor
 }
@@ -74,7 +75,10 @@ pub fn actor_with_attributes(
     mut actor: ActorContext,
     attrs: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
 ) -> ActorContext {
-    actor.attributes = attrs.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+    actor.attributes = attrs
+        .into_iter()
+        .map(|(k, v)| (k.into(), v.into()))
+        .collect();
     actor
 }
 
@@ -84,10 +88,7 @@ pub fn actor_with_attributes(
 
 /// 创建设备上下文（与 metadata.proto DeviceContext 一致：device_id、platform、priority）
 #[inline]
-pub fn device_context(
-    device_id: impl Into<String>,
-    platform: impl Into<String>,
-) -> DeviceContext {
+pub fn device_context(device_id: impl Into<String>, platform: impl Into<String>) -> DeviceContext {
     DeviceContext {
         device_id: device_id.into(),
         platform: platform.into(),
@@ -281,22 +282,19 @@ pub fn filter_contains(field: impl Into<String>, value: impl Into<String>) -> Fi
 // TimeRange
 // ----------------------------------------------------------------------------
 
-/// 时间范围（使用 prost_types::Timestamp）
+/// 时间范围。所有时间点均为 Unix epoch milliseconds。
 #[inline]
-pub fn time_range(start: Option<Timestamp>, end: Option<Timestamp>) -> TimeRange {
+pub fn time_range(start: Option<i64>, end: Option<i64>) -> TimeRange {
     TimeRange {
         start_time: start,
         end_time: end,
     }
 }
 
-/// 从 Unix 秒构造 Timestamp（便于业务层使用）
+/// 从 Unix 秒转换为协议内使用的毫秒时间点。
 #[inline]
-pub fn timestamp_seconds(secs: i64) -> Timestamp {
-    Timestamp {
-        seconds: secs,
-        nanos: 0,
-    }
+pub fn unix_millis_from_seconds(secs: i64) -> i64 {
+    secs.saturating_mul(1000)
 }
 
 // ----------------------------------------------------------------------------
@@ -307,13 +305,13 @@ pub fn timestamp_seconds(secs: i64) -> Timestamp {
 #[inline]
 pub fn audit_context(
     actor: ActorContext,
-    operated_at: Option<Timestamp>,
+    operated_at: Option<i64>,
     reason: impl Into<String>,
 ) -> AuditContext {
     AuditContext {
         actor: Some(actor),
         operated_at,
         reason: reason.into(),
-        metadata: HashMap::new(),
+        attributes: HashMap::new(),
     }
 }

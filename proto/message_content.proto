@@ -2,33 +2,9 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
 // MessageType 已合并到 common/message.proto；MessagePreview.type 为 int32（枚举值）以避免循环 import
 
-// =============================================================================
-// 消息内容 - 通用 IM 基座与扩展约定
-// =============================================================================
-// Message.content（bytes）**必须**为本文件中 MessageContent 的 protobuf 编码（oneof `content` 指明具体变体）。
-// Message.message_type 应与该变体一致（如 TEXT 对应 text=TextContent），供路由与校验；解析正文以 MessageContent 为准。
-//
-// 与 MessageType 一一对应（MessageType 定义在 common/message.proto）：
-//  0 UNSPECIFIED | 1 TEXT→text | 2 IMAGE→image | 3 VIDEO→video | 4 AUDIO→audio | 5 FILE→file
-//  6 LOCATION→location | 7 CARD→card | 8 STICKER→sticker | 9 EMOJI→emoji
-//  动图：MESSAGE_TYPE_IMAGE + image（ImageFormat::GIF、animated=true），无独立 GIF 类型
-//  11 LINK_CARD→link_card | 12 MERGE_FORWARD→forward（ForwardContent：mode + items[]，含来源与 MessageContent 快照）| 13 MINI_PROGRAM→mini_program
-//  14 THREAD→thread | 15 QUOTE→quote | 30 RICH_TEXT→rich_text（Rich Doc 主存储；Markdown/HTML 归一化后写入）
-//  32 IMAGE_GROUP→image_group | 60 SYSTEM→system | 61 NOTIFICATION→notification
-//  80 POLL→vote | 81 TASK→task | 82 SCHEDULE→schedule | 83 ANNOUNCEMENT→announcement
-//  100 CUSTOM→custom | 111-115 平台能力→placeholder
-
-// =============================================================================
-// 通用结构
-// =============================================================================
-
-
-// =============================================================================
-// 1-29：基础内容
-// =============================================================================
+// Message.content 为强类型 MessageContent；message_type 须与 oneof 变体一致（见 message.proto MessageType）。
 
 message TextContent {
   string text = 1;  // 正文；可与客户端约定内嵌 `[pack_key]`（与 EmojiContent / 本地 emoji 资源文件名一致）
@@ -66,9 +42,7 @@ enum ImageFormat {
 }
 
 // 稳定媒体引用在 ImageInfo.image_id（原图、缩略图各自一条，便于独立鉴权与缓存）。
-// 历史字段 image_id=1 已废弃并保留编号，请勿复用。
 message ImageContent {
-  reserved 1;
   ImageInfo source = 2;  // 原图信息
   ImageInfo thumbnail = 3;  // 缩略图（可选，独立 image_id）；动图 GIF/APNG 常可不设
   string description = 4;  // 图说/备注
@@ -135,21 +109,18 @@ message LocationContent {
   string address = 3;
   string title = 4;  // 地点名称/标题（原 description 字段号保留，语义更名为 title）
 
-  reserved 5;
-  reserved "poi_id";
-
   optional int32 zoom = 6;  // 地图缩放级别，如 10–18；未设置由客户端默认
   optional string snapshot_url = 7;  // 静态地图/截图 URL
   optional string snapshot_local_path = 8;  // 客户端本地快照路径（多端可选）
 }
 
-// 通用名片/卡片：类型 + 业务 id + 展示字段；extra 扩展键值
+// 通用名片/卡片：类型 + 业务 id + 展示字段；attributes 扩展键值
 message CardContent {
   string id = 1;
   string title = 2;
   string avatar = 3;
   string subtitle = 4;
-  map<string, string> extra = 5;
+  map<string, string> attributes = 5;
   string card_type = 6;  // 如 user、group
 }
 
@@ -158,7 +129,7 @@ message StickerContent {
   string url = 2;        // 贴图资源 URL
   int32 width = 3;
   int32 height = 4;
-  map<string, string> extra = 5;
+  map<string, string> attributes = 5;
   string package_id = 6; // 贴纸包 id，如 cat
   string format = 7;     // 资源格式，如 webp、png
 }
@@ -166,7 +137,7 @@ message StickerContent {
 message EmojiContent {
   string emoji = 1;  // 表情 pack key（与客户端资源 `emoji/<key>.webp` 一致，如 pensive_face）；非 Unicode
   string description = 2;  // 可选描述/无障碍
-  map<string, string> extra = 3;
+  map<string, string> attributes = 3;
 }
 
 message QuoteContent {
@@ -197,7 +168,7 @@ message ForwardItem {
   optional string source_conversation_id = 2;
   optional string source_sender_id = 3;
   optional string source_sender_name = 4;
-  optional google.protobuf.Timestamp source_message_time = 5;
+  optional int64 source_message_created_at = 5;
 
   // 快照：类型 + 摘要 + 完整 MessageContent（与 message_type 一致）
   int32 message_type = 6;
@@ -216,35 +187,38 @@ message ThreadContent {
   string thread_id = 1;  // 话题 id
   string thread_title = 2;
   MessageContent root_content = 3;  // 根消息内容（话题入口）
-  map<string, string> metadata = 4;
+  map<string, string> attributes = 4;
 }
 
-message MiniProgramContent {
+message AppCardAction {
+  string id = 1;
+  string label = 2;
+  string action_type = 3;  // open_url | open_app | command | custom
+  string target = 4;
+  map<string, string> attributes = 50;
+}
+
+// 通用应用卡片：投票、任务、日程、公告、小程序等业务卡片均走此结构或 CustomContent。
+message AppCardContent {
   string app_id = 1;
-  string title = 2;
-  string page_path = 3;
-  string thumbnail_url = 4;
-  map<string, string> extra = 5;
+  string card_type = 2;  // namespaced type, e.g. social.poll | workflow.task
+  string title = 3;
+  string subtitle = 4;
+  string summary = 5;
+  string thumbnail_url = 6;
+  string payload_schema = 7;
+  bytes payload = 8;
+  repeated AppCardAction actions = 9;
+  map<string, string> attributes = 50;
 }
 
-// =============================================================================
-// 30-59：富媒体/结构化
-// =============================================================================
-
-// 富文本唯一落库形态：Rich Doc JSON（由 content_schema 标识）；plain_text 必填供列表/搜索/推送。
-// Markdown / HTML / 编辑器 → 归一化管道 → Rich Doc → 校验 → 写入 doc_json。
-// source_payload 仅可选快照（如原始 markdown），不得作为展示主来源。
-// input_format / input_format_version：记录归一化前来源（可选）；不单独嵌套 message，避免无谓包装。
-//
-// title：长文/文章类富文本的可选标题（列表、转发卡片等）；列表/推送摘要用 plain_text。
-// search_text：由 SDK 从 Rich Doc 派生，供索引/全文检索（NFKC、小写、空白折叠等规则见 RICHDOC_V2 文档）。
-// render_hints_json：由 SDK 派生的渲染/排版提示 JSON 字符串（非展示主源；键名由 SDK 定义，不做 camelCase 转换）。
+// 富文本：Rich Doc JSON 为唯一落库形态；plain_text 供列表/搜索/推送。
 message RichTextContent {
   string doc_json = 1;  // Rich Doc 根节点 JSON 字符串，如 {"type":"doc","version":2,"children":[...]}
   string content_schema = 2;  // 如 rich_doc
   string plain_text = 3;  // 扁平纯文本（列表/推送摘要；必填）
   optional string input_format = 4;  // rich_editor | markdown | html
-  map<string, string> source_payload = 5;  // 可选：如 key "markdown" / "html" 存原文快照
+  map<string, string> source_attributes = 5;  // 可选：如 key "markdown" / "html" 存原文快照
   optional int32 input_format_version = 6;
   optional string title = 7;  // 文章标题；空则由客户端用正文首段/首行等兜底
   optional string search_text = 8;
@@ -254,105 +228,53 @@ message RichTextContent {
 message ImageGroupContent {
   repeated ImageInfo images = 1;  // 多张图片元信息
   string description = 2;  // 图组说明（可选）
-  map<string, string> metadata = 3;
+  map<string, string> attributes = 3;
 }
 
-// =============================================================================
-// 60-79：系统与通知
-// =============================================================================
+// System(60)：入时间线、参与 seq，event_kind 建议 domain.entity.action。
+// Notification(61)：触达型，persistent 控制落库；与 Event（信令）、EventBusEnvelope（服务间）区分。
 
 message SystemContent {
-  string event_kind = 1;  // 事件类型：group.member_joined | group.member_left | group.member_kicked | group.dissolved | group.created | group.name_changed | ...
-  string body = 2;  // 展示文案（如「张三加入了群聊」）
-  map<string, string> data = 3;  // 结构化数据（如 user_id, operator_id, old_name, new_name）
-  bytes payload = 4;  // 可选二进制载荷（业务自解析）
+  string event_kind = 1;  // 稳定事件键，如 group.member_joined
+  string body = 2;  // 展示文案（已渲染）
+  map<string, string> attributes = 3;  // 结构化扩展字段
+  bytes payload = 4;  // 跨版本二进制扩展
 }
 
 message NotificationContent {
   string title = 1;
   string body = 2;
-  string notification_type = 3;  // 通知子类型（业务自定）
-  map<string, string> data = 4;
-  repeated string target_user_ids = 10;  // 指定接收用户（空则按会话成员）
+  string notification_type = 3;  // 业务路由键，Social 域以 social. 开头
+  map<string, string> attributes = 4;
+  repeated string target_user_ids = 10;  // 定向推送
   string target_role_id = 11;
   bool notify_all = 12;
-  bool persistent = 20;
+  bool persistent = 20;  // false 则仅 push、不落库
   bool show_in_list = 21;
   bool show_badge = 22;
   bool play_sound = 23;
 }
 
-// =============================================================================
-// 80-99：平台推荐业务
-// =============================================================================
-// 投票
-message VoteContent {
-  string vote_id = 1;
-  string title = 2;
-  repeated string options = 3;
-  map<string, string> metadata = 4;
-  // 参与投票的用户 ID（与 metadata 互补：结构化参与人走本字段，扩展信息走 metadata）
-  repeated string participant_user_ids = 5;
-}
-// 任务
-message TaskContent {
-  string task_id = 1;
-  string title = 2;
-  string status = 3;
-  map<string, string> metadata = 4;
-  repeated string participant_user_ids = 5;
-}
-// 日程
-message ScheduleContent {
-  string schedule_id = 1;
-  string title = 2;
-  // Unix 毫秒时间戳（UTC），与会话内展示一致；不再使用 google.protobuf.Timestamp
-  int64 start_time_ms = 3;
-  int64 end_time_ms = 4;
-  map<string, string> metadata = 5;
-  repeated string participant_user_ids = 6;
-}
-// 公告
-message AnnouncementContent {
-  string title = 1;
-  string body = 2;
-  bool pinned = 3;
-  map<string, string> metadata = 4;
-}
-
-// =============================================================================
-// 100：自定义扩展
-// =============================================================================
-
 message CustomContent {
   string type = 1;  // 业务类型：red_packet | transfer | check_in | vote | approval | ...
   bytes payload = 2;  // 业务序列化载荷（JSON 或 protobuf）
   string description = 3;  // 可选展示摘要（会话列表/搜索）
-  map<string, string> metadata = 4;
+  map<string, string> attributes = 4;
 }
-
-// =============================================================================
-// 101-115：平台能力（E2E 占位/解密失败/导入/迁移等）
-// =============================================================================
 
 message PlaceholderContent {
   string reason = 1;  // 占位原因：e2e_placeholder | decrypt_failed | external | imported | migration
   bytes payload = 2;  // 可选密文或元数据（业务自解析）
   string fallback_text = 3;  // 无法解析时的展示文案（如「[加密消息]」「[解密失败]」）
-  map<string, string> metadata = 4;
+  map<string, string> attributes = 4;
 }
-
-// =============================================================================
-// MessageContent 聚合与 MessagePreview（本文件内自引用，避免与 message.proto 循环）
-// =============================================================================
-// Message.content（bytes）的序列化格式即下方 MessageContent 的 protobuf 编码。
 
 message MessagePreview {
   string message_id = 1;
   string sender_id = 2;
   int32 type = 3;  // 消息类型（MessageType 枚举值，避免 import message.proto）
   string text = 4;
-  google.protobuf.Timestamp time = 5;
+  int64 created_at = 5;
 }
 
 message MessageContent {
@@ -370,15 +292,11 @@ message MessageContent {
     LinkCardContent link_card = 12;
     ForwardContent forward = 13;
     ThreadContent thread = 14;
-    MiniProgramContent mini_program = 15;
+    AppCardContent app_card = 16;
     RichTextContent rich_text = 30;
     ImageGroupContent image_group = 32;
     SystemContent system = 60;
     NotificationContent notification = 61;
-    VoteContent vote = 80;
-    TaskContent task = 81;
-    ScheduleContent schedule = 82;
-    AnnouncementContent announcement = 83;
     CustomContent custom = 100;
     PlaceholderContent placeholder = 101;
   }

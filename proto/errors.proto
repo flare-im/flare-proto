@@ -2,25 +2,7 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-// =============================================================================
-// 精简错误模型（核心模块）
-// =============================================================================
-// 约定：业务响应不再显式携带 status 字段；错误通过 gRPC Status details 携带本文件的 ErrorDetail。
-//
-// - code: 业务错误码（int32，跨语言/跨服务一致；支持自定义）
-// - reason: 国际化 key（客户端按 key 查表；未命中回退 message）
-// - message: fallback 文案（可空）
-// - track: 变更轨道/渠道/灰度标识（如 "stable" / "beta" / "canary"，可空）
-
-// 业务错误码定义（保留 + 可扩展）。
-// - 0-999：框架/核心预留
-// - 1000+：业务自定义（建议按 BC/模块分段）
-//
-// 扩展建议：
-// - **不要依赖枚举穷举**：服务端在 `ErrorDetail.code` 中可直接写入任意 int32 业务码；
-// - **向后兼容**：新增错误码只需新增“码表/文档”，不需要改动响应结构；
-// - **跨语言一致**：同一业务语义在各端保持同一 code；
-// - **灰度/多轨**：track 可用于区分 "stable"/"canary"/"beta" 等发布轨道（可空）。
+// 错误经 gRPC Status details 携带 ErrorDetail（code/reason/message/track）。0-999 框架预留，1000+ 业务码。
 enum ErrorCode {
   ERROR_CODE_UNSPECIFIED = 0;
   ERROR_CODE_OK = 1;

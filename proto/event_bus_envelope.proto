@@ -2,13 +2,7 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-// =============================================================================
-// Event Bus Envelope (MQ neutral)
-// =============================================================================
-// 用于跨服务事件总线的统一信封：
-// - partition_key: Kafka/NATS 等用于分区与同流有序（IM 场景建议 conversation_id）
-// - seq: 流内序号（单调递增，不允许回退）
-// - payload: 业务载荷（一般为 protobuf bytes；也可承载其它编码）
+// 服务间 Event Bus 信封（非客户端协议）。partition_key 建议 conversation_id；勿与 PushEnvelope 混用。
 
 message EventBusEnvelope {
   // 全局唯一事件 ID
@@ -26,10 +20,9 @@ message EventBusEnvelope {
   // 业务载荷（bytes）
   bytes payload = 5;
 
-  // 可选：事件发生时间戳（毫秒）
-  uint64 timestamp_ms = 6;
+  // 事件发生时间（Unix epoch millis）
+  int64 occurred_at = 6;
 
   // 可选：来源服务标识
   string source = 7;
 }
-

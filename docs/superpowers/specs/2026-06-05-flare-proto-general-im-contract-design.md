@@ -65,7 +65,7 @@ Owns:
 
 - `server_id`, `client_msg_id`, `conversation_id`, `channel_id`, `conversation_seq`, `message_seq`, `sender_id`, `message_type`, typed `MessageContent`, and `MessageStatus`.
 - Generic retention and visibility state.
-- Opaque extension maps.
+- Opaque extension maps named consistently: public string maps use `attributes`, binary maps use `extensions`, and transport/MQ context maps use `headers`.
 
 Does not own:
 
@@ -127,7 +127,7 @@ Owns:
 - Explicit read ACK.
 - Batch ACK for backpressure and weak-network efficiency.
 
-ACK must keep success/failure and structured error information explicit.
+ACK must keep success/failure and structured error information explicit through typed result payloads.
 
 ### Capability
 
@@ -223,6 +223,8 @@ RTC sends:
 
 The `flare-sdk-plugin-call` package keeps typed builders for call payloads, but those builders encode plugin-owned payloads into `CapabilityPacket`. This preserves typed call ergonomics without binding common IM proto to SFU details. If a call needs a timeline-visible artifact, it creates a normal system/custom message or app card through the message pipeline.
 
+Detailed WebRTC/SFU signaling guidance is documented in `docs/webrtc-sfu-signaling-over-flare-proto.md`.
+
 ### 3. Collapse Product-Specific Content Into App Card Or Custom
 
 Keep stable generic types only.
@@ -281,7 +283,7 @@ The current addition of `ReadAck` and correction from `ACK_TYPE_CONVERSTION` to 
 Improve the contract by ensuring:
 
 - Every ACK has idempotency identity where needed.
-- Send ACK has structured error detail.
+- Send ACK uses a result `oneof`: `accepted` carries server message identity and sequence, while `error` carries structured `ErrorDetail`.
 - Read ACK is separate from delivery ACK.
 - Push/window ACK is tied to `EventEnvelope.window_id`.
 - Batch ACK supports multiple conversations and devices.
@@ -367,7 +369,8 @@ This is the best fit for a generic IM platform. Core remains small, stable, and 
 ## Error Handling
 
 - gRPC surfaces transport/application errors through `tonic::Status` with `ErrorDetail` where available.
-- `SendAck` retains structured error details for optimistic UI convergence.
+- `SendAck` retains structured error details through its `error` result for optimistic UI convergence.
+- Internal push delivery reports use result `oneof` payloads instead of `success` flags plus loose error strings.
 - Hook denial maps to structured error reason and retry advice.
 - Sync stale states use `SyncStaleContext` and `SyncRecoveryHint`.
 - Capability packet failures should not poison the core sync stream; they return capability-specific errors through the capability service or custom payload response.

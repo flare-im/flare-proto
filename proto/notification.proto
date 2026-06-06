@@ -2,19 +2,8 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
 
-// =============================================================================
-// 通用通知消息（与 flare.core.commands.NotificationCommand 配合使用）
-// =============================================================================
-// 服务端通过 NotificationCommand 下发给客户端时：
-//   - NotificationCommand.type   -> 信道层类型（SYSTEM/BROADCAST/ALERT/USER/CONNECTION）
-//   - NotificationCommand.title  -> 可选展示标题（可与本 message 的 title 二选一或同时使用）
-//   - NotificationCommand.content -> 本 NotificationMessage 的序列化结果（bytes）
-//   - NotificationCommand.metadata -> 扩展元信息（如 trace_id、locale 等）
-//
-// 客户端解析：先解析 Command，再反序列化 content 得到 NotificationMessage，按 kind 与 payload 展示或跳转。
-// =============================================================================
+// 与 NotificationCommand 配合：先解 Command，再反序列化 content 为 NotificationMessage。
 
 /// 通知类型（与 flare.core.commands.NotificationCommand.Type 一一对应）
 enum NotificationKind {
@@ -41,16 +30,16 @@ message SystemNotificationPayload {
   string code = 1;           // 业务码（如 MAINTENANCE、VERSION_UPDATE、ANNOUNCEMENT）
   string message = 2;        // 详细说明
   string link_url = 3;       // 可选跳转链接
-  google.protobuf.Timestamp start_at = 4;
-  google.protobuf.Timestamp end_at = 5;
+  optional int64 start_at = 4;
+  optional int64 end_at = 5;
 }
 
 /// 广播通知载荷
 message BroadcastNotificationPayload {
   string broadcast_id = 1;   // 广播 ID，用于去重/已读
-  string body = 2;           // 正文（可与 NotificationMessage.body 二选一）
+  string body = 2;           // 正文
   string link_url = 3;
-  map<string, string> extra = 4;
+  map<string, string> attributes = 4;
 }
 
 /// 告警/提示载荷
@@ -66,7 +55,7 @@ message UserStatusNotificationPayload {
   string user_id = 1;
   string status = 2;         // online / offline / busy / typing 等
   string conversation_id = 3; // 可选，表示在某一会话内输入
-  google.protobuf.Timestamp at = 4;
+  int64 occurred_at = 4;
 }
 
 /// 连接相关通知载荷
@@ -78,12 +67,12 @@ message ConnectionNotificationPayload {
 }
 
 /// 用户自定义通知载荷（业务扩展）
-/// 客户端可根据 type 或 schema_url 反序列化 data（JSON、protobuf 等）
+/// 客户端可根据 type 或 schema_url 反序列化 payload（JSON、protobuf 等）
 message CustomNotificationPayload {
   string type = 1;           // 业务自定义类型（如 "order_shipped"、"reward_claim"），便于客户端路由
-  bytes data = 2;            // 自定义内容（JSON、protobuf、msgpack 等，由业务约定）
-  string schema_url = 3;     // 可选：schema 或版本标识，便于多端兼容
-  map<string, string> meta = 4;  // 可选元数据（key-value，便于过滤或展示）
+  bytes payload = 2;         // 自定义内容（JSON、protobuf、msgpack 等，由业务约定）
+  string schema_url = 3;     // 可选：schema 或版本标识
+  map<string, string> attributes = 4;  // 可选元数据（key-value，便于过滤或展示）
 }
 
 /// 通用通知消息（序列化后放入 NotificationCommand.content）
@@ -93,14 +82,14 @@ message NotificationMessage {
   string title = 3;            // 标题（可与 NotificationCommand.title 合并展示）
   string body = 4;             // 正文
   NotificationPriority priority = 5;
-  google.protobuf.Timestamp expire_at = 6;  // 过期时间，过期后客户端可不再展示
-  google.protobuf.Timestamp created_at = 7;
+  optional int64 expire_at = 6;  // 过期时间，过期后客户端可不再展示
+  int64 created_at = 7;
 
   /// 客户端行为：打开会话 / 打开 URL / 无操作
   oneof action {
     string deeplink = 10;      // 应用内 deeplink（如 flare://conversation/xxx）
     string url = 11;           // 外链
-    string conversation_id = 12; // 打开指定会话（可与 deeplink 二选一）
+    string conversation_id = 12; // 打开指定会话
   }
 
   /// 按 kind 的强类型载荷（可选，无则仅用 title/body）
@@ -113,5 +102,5 @@ message NotificationMessage {
     CustomNotificationPayload custom = 25;  // 用户自定义载荷（kind 可为 CUSTOM 或任意）
   }
 
-  map<string, string> extra = 30;  // 扩展字段（如 locale、trace_id）
+  map<string, string> attributes = 30;  // 扩展字段（如 locale、trace_id）
 }

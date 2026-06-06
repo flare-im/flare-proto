@@ -2,21 +2,11 @@ syntax = "proto3";
 
 package flare.common.v1;
 
-import "google/protobuf/timestamp.proto";
 import "metadata.proto";
 import "enums.proto";  // ConversationType
 import "message_content.proto";  // MessagePreview
 
-// =============================================================================
-// 会话读模型（Session BC 基座）
-// =============================================================================
-// 设计原则：简单、通用、可扩展。一会话一流（conversation_id + seq），
-// 未读数 = max_seq - last_read_seq，服务端维护；多端 last_read_seq 可独立。
-// 排序/分页/过滤复用 common/metadata.proto（SortExpression、Pagination、FilterExpression）。
-
-// -----------------------------------------------------------------------------
-// 枚举（基座必备，扩展用 ext / 业务层）
-// -----------------------------------------------------------------------------
+// 会话读模型：一会话一流；列表/补丁统一 ConversationSummary；成员全量见 SYNC_KIND_CONVERSATION_PARTICIPANTS。
 
 /// 会话可见性（列表与权限）
 enum ConversationVisibility {
@@ -52,63 +42,56 @@ enum DeviceState {
   DEVICE_STATE_CONFLICT = 3;
 }
 
-// -----------------------------------------------------------------------------
-// 会话列表项（基座：轻量 + 摘要两种视图，按需选用）
-// -----------------------------------------------------------------------------
-
-/// 轻量会话（列表最小集：未读 = max_seq - last_read_seq）
-message ConversationLight {
-  string conversation_id = 1;
-  string conversation_type = 2;
-  uint32 unread_count = 3;
-  uint64 max_seq = 4;
-  uint64 last_read_seq = 5;
-  MessagePreview preview = 6;
-  google.protobuf.Timestamp updated_at = 7;
-  bool is_muted = 8;
-  bool is_pinned = 9;
-  google.protobuf.Timestamp mute_until = 10;  // 空=长期免打扰，有值=定时免打扰
-  repeated string labels = 11;
-  /// 与 ConversationSummary.channel_id 一致（LIGHT 补丁显式带路由，不依赖 ext）
-  string channel_id = 12;
-  map<string, string> ext = 50;
-}
-
-/// 会话摘要（进入聊天前的概览：Light + 展示与业务字段）
+// 会话列表/增量补丁的唯一读模型。
 message ConversationSummary {
   string conversation_id = 1;
   string conversation_type = 2;
-  string business_type = 3;
   string display_name = 4;
   string avatar_url = 5;
   MessagePreview last_message = 6;
   uint32 unread_count = 7;
-  uint64 max_seq = 8;
+  uint64 max_conversation_seq = 8;
   uint64 last_read_seq = 9;
   bool is_muted = 10;
   bool is_pinned = 11;
-  google.protobuf.Timestamp mute_until = 12;
-  google.protobuf.Timestamp updated_at = 13;
-  google.protobuf.Timestamp created_at = 14;
+  optional int64 mute_until = 12;
+  int64 updated_at = 13;
+  int64 created_at = 14;
   repeated string labels = 15;
-  int32 member_count = 16;  // 成员数，
-  string channel_id = 17;   // 会话频道：单聊=对方 user_id，群聊=群 ID，频道/话题=对应 ID
-  map<string, string> ext = 50;
+  int32 member_count = 16;
+  string channel_id = 17;
+  /// 非单聊：成员表变更版本（opaque，客户端仅做相等比较 + 触发按需拉成员）。
+  uint64 participant_version = 18;
+  /// 非单聊：小批量预览（严禁承载全量成员）。
+  repeated ConversationParticipant member_preview = 19;
+  /// 用户级：会话归档（飞书「完成」）
+  bool is_archived = 20;
+  /// 用户级设置版本（LWW；多端同步）
+  uint64 user_settings_version = 21;
+  /// 用户级草稿（多端同步）
+  string draft = 22;
+  /// 当前用户的历史可见边界：conversation_seq <= visible_after_conversation_seq 的消息不可见。
+  uint64 visible_after_conversation_seq = 23;
+  map<string, string> attributes = 50;
 }
 
-// -----------------------------------------------------------------------------
-// 会话详情（群信息/设置页，按需拉取）
-// -----------------------------------------------------------------------------
+/// 当前用户在会话上的偏好设置（读写合一读模型）
+message ConversationUserSettings {
+  bool is_pinned = 1;
+  bool is_muted = 2;
+  bool is_archived = 3;
+  optional int64 mute_until = 4;
+  string draft = 5;
+  uint64 settings_version = 6;
+}
 
-/// 会话参与者（角色、禁言、置顶、群昵称）
 message ConversationParticipant {
   string user_id = 1;
   repeated string roles = 2;
   bool muted = 3;
   bool pinned = 4;
   map<string, string> attributes = 5;
-  google.protobuf.Timestamp joined_at = 6;
-  string nickname = 7;
+  int64 joined_at = 6;
 }
 
 /// 会话策略（多端冲突、历史同步、搜索/文件权限等）
@@ -117,7 +100,7 @@ message ConversationPolicy {
   int32 max_devices = 2;
   bool allow_anonymous = 3;
   bool allow_history_sync = 4;
-  map<string, string> metadata = 5;
+  map<string, string> attributes = 5;
   bool allow_message_search = 6;
   bool allow_file_transfer = 7;
 }
@@ -127,39 +110,34 @@ message DevicePresence {
   string device_id = 1;
   string device_platform = 2;
   DeviceState state = 3;
-  google.protobuf.Timestamp last_seen_at = 4;
+  optional int64 last_seen_at = 4;
   string device_name = 5;
   string ip_address = 6;
 }
 
-/// 会话详情（群信息/设置页；由 GetConversationDetail 返回）
+/// 会话详情（群信息/设置页；成员全量走 SYNC_KIND_CONVERSATION_PARTICIPANTS）。
 message ConversationDetail {
   string conversation_id = 1;
   string conversation_type = 2;
-  string business_type = 3;
   string display_name = 4;
   string avatar_url = 5;
   string description = 6;
   string announcement = 7;
-  google.protobuf.Timestamp announcement_updated_at = 8;
+  optional int64 announcement_updated_at = 8;
   string announcement_updated_by = 9;
   ConversationVisibility visibility = 10;
   ConversationLifecycleState lifecycle_state = 11;
   ConversationPolicy policy = 12;
-  repeated ConversationParticipant participants = 13;
   DevicePresence presence = 14;
-  google.protobuf.Timestamp created_at = 15;
-  google.protobuf.Timestamp updated_at = 16;
+  int64 created_at = 15;
+  int64 updated_at = 16;
   int32 member_count = 17;
-  map<string, string> attributes = 18;
   /// 持久化路由：单聊库中为空，读路径组装为对端 user_id；群/频道等为消息 channel_id（群 ID 等）
-  string channel_id = 19;
-  map<string, string> ext = 50;
+  string channel_id = 18;
+  map<string, string> attributes = 50;
 }
 
-// -----------------------------------------------------------------------------
 // 草稿 / 标签 / 搜索（通用扩展）
-// -----------------------------------------------------------------------------
 
 /// 会话草稿（多端可同步）
 message ConversationDraft {
@@ -167,8 +145,8 @@ message ConversationDraft {
   string text = 2;
   repeated string image_urls = 3;
   string file_url = 4;
-  google.protobuf.Timestamp saved_at = 5;
-  map<string, string> ext = 50;
+  int64 saved_at = 5;
+  map<string, string> attributes = 50;
 }
 
 /// 会话标签（分类/筛选）
@@ -176,8 +154,8 @@ message ConversationLabel {
   string label_id = 1;
   string name = 2;
   string color = 3;
-  google.protobuf.Timestamp created_at = 4;
-  google.protobuf.Timestamp updated_at = 5;
+  int64 created_at = 4;
+  int64 updated_at = 5;
 }
 
 /// 会话列表搜索/筛选条件（排序用 metadata.SortExpression，field 如 updated_at / created_at / unread_count / display_name）
@@ -186,8 +164,8 @@ message ConversationSearchFilter {
   repeated string conversation_types = 2;
   repeated string labels = 3;
   bool include_archived = 4;
-  google.protobuf.Timestamp updated_after = 5;
-  google.protobuf.Timestamp updated_before = 6;
+  optional int64 updated_after = 5;
+  optional int64 updated_before = 6;
   repeated FilterExpression filters = 7;  // 复用 metadata，多条件 AND
   SortExpression sort = 8;                // 复用 metadata，避免重复枚举
 }
