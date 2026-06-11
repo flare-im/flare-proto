@@ -34,26 +34,6 @@ message MqEnvelope {
   }
 }
 
-message MessageEnvelope {
-  string conversation_id = 1;
-  Message message = 2;
-  bool sync = 3;
-  map<string, string> attributes = 4;
-  map<string, string> headers = 5;
-  string event_type = 6;
-  int64 created_at = 7;
-  string tenant_id = 8;
-}
-
-message TopicEventEnvelope {
-  string conversation_id = 1;
-  Event event = 2;
-  string tenant_id = 3;
-  string event_type = 4;
-  uint64 seq = 5;
-  string request_id = 6;
-}
-
 enum PushTaskPayloadKind {
   PUSH_TASK_PAYLOAD_KIND_UNSPECIFIED = 0;
   PUSH_TASK_PAYLOAD_KIND_MESSAGE = 1;
