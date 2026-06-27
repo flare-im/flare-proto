@@ -34,6 +34,8 @@ message PinnedMessageInfo {
   int64 pinned_at = 4;  // 置顶时间
   optional int64 expire_at = 5;  // 过期时间（空=长期）
   string reason = 6;  // 置顶说明
+  MessagePinScope scope = 7;  // 作用域：会话全员或仅自己
+  string owner_user_id = 8;  // 私有置顶归属用户；会话全员置顶为空
 }
 
 message MarkedMessageInfo {

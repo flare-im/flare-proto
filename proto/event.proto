@@ -10,13 +10,28 @@ import "message_content.proto";
 // 领域事件，会话内 seq 有序。错误走 gRPC Status + ErrorDetail；读模型见 models.proto。
 // 实时控制（typing/presence/RTC 等）走 data.proto，不占用 conversation_seq。
 
-/// 事件批（下行推送或 Sync 返回）
+/// 事件批（下行推送或 Sync 返回）。
+///
+/// 对大规模会话，服务端应优先发送 PING / PING_WITH_INLINE：客户端以
+/// conversation_id + max_conversation_seq 检测本地缺口，必要时再按 seq 拉取。
 message EventEnvelope {
   repeated Event events = 1;  // 本批事件列表
   uint64 max_conversation_seq = 2;  // 本批最大 conversation_seq
   bool has_more = 3;  // 是否还有更多
   string next_cursor = 4;  // 下一页游标
   string window_id = 5;  // 窗口 ID，用于 PushAck 确认本批
+  EventEnvelopeDeliveryMode delivery_mode = 6;  // inline / ping / ping+inline
+  string conversation_id = 7;  // 单会话投递原语的会话 ID
+  uint64 min_conversation_seq = 8;  // 本批最小 conversation_seq，用于连续性校验
+  bool inline_events_truncated = 9;  // true 表示 inline 只带尾部样本，必须补拉
+  map<string, string> attributes = 10;  // 仅用于扩展，不承载稳定核心语义
+}
+
+enum EventEnvelopeDeliveryMode {
+  EVENT_ENVELOPE_DELIVERY_MODE_UNSPECIFIED = 0;
+  EVENT_ENVELOPE_DELIVERY_MODE_INLINE = 1;  // 完整内联事件批
+  EVENT_ENVELOPE_DELIVERY_MODE_PING = 2;  // 仅水位通知，客户端按需拉取
+  EVENT_ENVELOPE_DELIVERY_MODE_PING_WITH_INLINE = 3;  // 水位通知 + 小批 inline 事件
 }
 
 enum EventType {
@@ -159,11 +174,14 @@ message PinEvent {
   string pinned_by = 2;  // 置顶操作者 user_id
   optional string reason = 3;  // 置顶说明（可选展示）
   optional int64 expire_at = 4;  // 置顶过期时间（空表示长期）
+  MessagePinScope scope = 5;  // 作用域：会话全员或仅自己
 }
 
 /// 取消置顶事件（EVENT_UNPIN）
 message UnpinEvent {
   string server_msg_id = 1;  // 被取消置顶的消息服务端 ID
+  string unpinned_by = 2;  // 取消置顶操作者 user_id
+  MessagePinScope scope = 3;  // 作用域：会话全员或仅自己
 }
 
 /// 标记消息事件（EVENT_MARK）：重要/待办/已处理等

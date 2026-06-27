@@ -13,6 +13,8 @@ enum ConversationType {
   CONVERSATION_TYPE_SYSTEM = 4;       // 系统通知（CID 前缀 4）
   CONVERSATION_TYPE_CUSTOMER = 5;     // 客服会话（CID 前缀 5）
   CONVERSATION_TYPE_TEMP = 6;         // 临时会话（CID 前缀 6）
+  CONVERSATION_TYPE_CHANNEL = 7;      // 频道（订阅者模型，CID 前缀 7）
+  CONVERSATION_TYPE_BROADCAST = 8;    // 广播（订阅者模型，CID 前缀 8）
 }
 
 /// 删除类型：软删仅当前用户隐藏，硬删仅管理员/合规
@@ -27,6 +29,12 @@ enum DeleteScope {
   DELETE_SCOPE_UNSPECIFIED = 0;
   DELETE_SCOPE_USER_PRIVATE = 1;         /// 仅当前用户可见性
   DELETE_SCOPE_CONVERSATION_GLOBAL = 2;   /// 会话内全员（如管理员删消息）
+}
+
+/// 消息置顶作用域：会话全员 vs 当前用户私有
+enum MessagePinScope {
+  MESSAGE_PIN_SCOPE_CONVERSATION = 0;  /// 会话内所有可见成员
+  MESSAGE_PIN_SCOPE_SELF = 1;          /// 仅当前用户自己的多端
 }
 
 /// 反应操作：添加/移除（emoji 等）

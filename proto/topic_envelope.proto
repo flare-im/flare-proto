@@ -32,6 +32,9 @@ message MqEnvelope {
     Message message = 10;
     Event event = 11;
   }
+
+  // 大群主链路信号：true 时 recipient_user_ids 必须为空，推送侧走 per-conversation online index。
+  bool large_conversation = 12;
 }
 
 enum PushTaskPayloadKind {

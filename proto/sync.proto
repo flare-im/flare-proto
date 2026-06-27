@@ -81,6 +81,14 @@ message SyncStaleContext {
   SyncRecoveryHint recommended_action = 4;
 }
 
+/// 会话摘要读模型版本提示，用于大群 notify+pull 场景下的摘要差异对账
+message ConversationVersion {
+  string conversation_id = 1;
+  uint64 version = 2;
+  uint64 max_conversation_seq = 3;
+  int64 updated_at = 4;
+}
+
 /// 下行通用提示：恢复策略、国际化、分批渲染建议（best_practice §六 batchApply）
 message SyncSessionHints {
   SyncRecoveryHint recovery_hint = 1;
@@ -92,6 +100,14 @@ message SyncSessionHints {
   uint64 server_max_conversation_seq = 5;
   /// 事件流水位（与 EventEnvelope.max_conversation_seq 对齐，供客户端检测缺口）
   uint64 server_replay_max_conversation_seq = 6;
+  /// 用户级可见状态版本；客户端相等时可跳过跨会话拉取。
+  uint64 server_user_version = 7;
+  /// 当客户端 user_version 落后时，服务端可下发需要二级会话同步的 conversation_id。
+  repeated string changed_conversation_ids = 8;
+  /// true 表示变更索引窗口已截断，客户端应回退到全量/快照同步。
+  bool user_version_index_truncated = 9;
+  /// 服务端检测到比客户端已知版本更新的会话摘要。
+  repeated ConversationVersion conversation_versions = 10;
 }
 
 // -----------------------------------------------------------------------------
@@ -165,6 +181,7 @@ message Sync {
     ConversationMaxSeqSync conversation_max_seq = 21;
     ConversationsSync conversations = 22;
     ConversationParticipantsSync conversation_participants = 23;
+    ConversationUserSettingsSync conversation_user_settings = 24;
   }
 }
 
@@ -226,9 +243,19 @@ message QueryEventsSync {
 message GetSyncCursorSync {
   string device_id = 2;
   string conversation_id = 3;
+  repeated ConversationVersion known_conversation_versions = 4;
 }
 
 message UpdateSyncCursorSync { MultiDeviceCursor cursor = 1; }
+
+message ConversationUserSettingsSync {
+  string conversation_id = 1;
+  optional bool is_pinned = 2;
+  optional bool is_muted = 3;
+  optional bool is_archived = 4;
+  optional string draft = 5;
+  uint64 base_settings_version = 6;
+}
 
 // -----------------------------------------------------------------------------
 // 下行：SyncRes
@@ -249,6 +276,7 @@ message SyncRes {
     ConversationMaxSeqSyncRes conversation_max_seq_res = 21;
     ConversationsSyncRes conversations = 22;
     ConversationParticipantsSyncRes conversation_participants = 23;
+    ConversationUserSettingsSyncRes conversation_user_settings = 24;
   }
 }
 
@@ -304,6 +332,10 @@ message GetSyncCursorSyncRes {
 message UpdateSyncCursorSyncRes {
   MultiDeviceCursor cursor = 1;
   SyncSessionHints hints = 2;
+}
+
+message ConversationUserSettingsSyncRes {
+  ConversationUserSettings settings = 1;
 }
 
 message ConversationsSyncRes {

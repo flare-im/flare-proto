@@ -60,6 +60,7 @@ message ImageInfo {
   string image_id = 7;  // 媒体存储侧稳定 id（GetFileUrl / 网关代理）；可与 uuid 同值
   ImageFormat format = 8;  // 与 mime_type 一致时由发送端填写；未指定则接收端可仅依赖 mime_type
   bool animated = 9;       // 是否动图（GIF/APNG/动 WebP 等）；静态图为 false
+  string blurhash = 10;    // 低清占位图 hash（可选）；由媒体处理器生成，客户端直接展示
 }
 
 message VideoContent {

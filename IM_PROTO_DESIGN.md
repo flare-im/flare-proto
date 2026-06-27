@@ -25,8 +25,8 @@
 
 ### 2.1 Command（写侧）
 
-- **SendMessage**：客户端上行一条消息草稿（Message，仅填可写字段）；服务端写事件流，分配 server_id/seq/timestamp，并产生 `Event(EVENT_MESSAGE, message)`。
-- **ExecuteEvent**：所有“操作类”变更统一入口：撤回、编辑、删除、已读、反应、置顶、标记等，均编码为 `Event(type + payload)`，服务端写事件流并回 `OperationResponse(request_id + RpcStatus)`。
+- **MessageSendService.SendMessage**：客户端上行一条消息草稿（Message，仅填可写字段）；服务端写事件流，分配 server_id/seq/timestamp，并产生 `Event(EVENT_MESSAGE, message)`。
+- **MessageEventService.ExecuteEvent**：所有“操作类”变更统一入口：撤回、编辑、删除、已读、反应、置顶、标记等，均编码为 `Event(type + payload)`，服务端写事件流并回 `OperationResponse(request_id + RpcStatus)`。
 - 长连接：ClientPacket 中 `send_message = Message`、`send_event = Event`，与 gRPC 的 SendMessage / ExecuteEvent 语义一致。
 
 ### 2.2 Query（读侧）
@@ -100,7 +100,9 @@ common/
 | 服务 | 职责 | 白皮书对应 |
 |------|------|------------|
 | **RouterService** (router.proto) | 实时信令中枢：SVID/分片路由、SelectPushTargets/GetDeviceRoute、流控；不访问 DB、不作事件总线 | §2 |
-| **MessageService** (message.proto) | 写路径入口：SendMessage、ExecuteEvent(Event)；操作便捷 RPC；查询可委托 Storage Reader | §1.2 实时信令流、Orchestrator |
+| **MessageSendService** (message_service.proto) | 消息写路径入口：SendMessage、BatchSendMessage、SendSystemMessage、SendAck、SendCustomData | §1.2 实时信令流、Message Ingest |
+| **MessageEventService** (message_service.proto) | 事件命令入口：ExecuteEvent(Event)，由 Orchestrator 统一处理操作事件 | §1.2 实时信令流、Orchestrator |
+| **MessageActionService** (message_service.proto) | 撤回/编辑/删除、已读、reaction、pin、mark 等便捷操作 RPC | §1.2 实时信令流、Orchestrator |
 | **StorageReaderService** (storage.proto) | 只读查询与读模型；写仅由 Kafka Writer 消费，无 gRPC 写 | §3、§1.2 查询流 |
 | **ConversationService** (conversation.proto) | 会话 CRUD、列表/增量同步、游标与未读、Thread；与 common/sync 语义一致 | §6 多端同步 |
 | **OnlineService** (online.proto) | 连接生命周期（Login/Logout/Heartbeat）、在线状态与设备；Router 选端依赖 | §2.4 |
@@ -115,7 +117,7 @@ common/
 ## 7. Rust 侧落地要点
 
 - **Domain**：Message 聚合根、Event 枚举与 payload、Conversation 读模型；Command/Query 严格分离。
-- **Application**：SendMessage → 写 Event(EVENT_MESSAGE)；ExecuteEvent → 写对应 Event 并回 OperationResponse；SyncRequest → 从读模型或事件流返回 EventEnvelope。
+- **Application**：MessageSendService.SendMessage → 写 Event(EVENT_MESSAGE)；MessageEventService.ExecuteEvent → 写对应 Event 并回 OperationResponse；SyncRequest → 从读模型或事件流返回 EventEnvelope。
 - **Infrastructure**：gRPC/WebSocket/QUIC 从 metadata 取 tenant_id/actor_id/request_id；序列化使用 prost/tonic，与 proto 一一对应。
 - **FSM**：Message 状态变更仅通过 Event（RECALL/EDIT/DELETE/READ 等）驱动，避免裸改 status 字段。
 
