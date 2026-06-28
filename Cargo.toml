@@ -1,13 +1,13 @@
 [package]
 name = "flare-proto"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.94.0"
 authors = ["Flare Team"]
 license = "MIT"
 description = "Flare IM gRPC Protocol Definitions - Shared protocol definitions for both client and server"
-repository = "https://github.com/flare-im/flare-im"
-homepage = "https://github.com/flare-im/flare-im"
+repository = "https://github.com/flare-im/flare-proto"
+homepage = "https://github.com/flare-im/flare-proto"
 documentation = "https://docs.rs/flare-proto"
 readme = "README.md"
 exclude = [
@@ -19,6 +19,10 @@ exclude = [
 
 [build-dependencies]
 prost-build = "0.14"
+protoc-bin-vendored = "3.2"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 prost = "0.14"

@@ -1,111 +1,81 @@
 # Flare Proto
 
-Flare IM gRPC Protocol Definitions - 为 Flare IM 提供统一的 gRPC 协议定义，支持客户端和服务端使用。
+[![Crates.io](https://img.shields.io/crates/v/flare-proto.svg)](https://crates.io/crates/flare-proto)
+[![Documentation](https://docs.rs/flare-proto/badge.svg)](https://docs.rs/flare-proto)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.94%2B-orange.svg)](https://www.rust-lang.org/)
 
----
+`flare-proto` contains the shared protobuf model layer for Flare IM.
+It publishes the generated Rust types for common envelopes, messages,
+conversation sync payloads, metadata, notifications, data packets, and
+event-bus envelopes.
 
-## 📋 概述
+This crate intentionally stays focused on common wire contracts. gRPC service
+stubs and tonic clients live in `flare-grpc-proto`.
 
-`flare-proto` 是 Flare IM 的 gRPC 协议定义库，包含所有服务的 Protobuf 定义和生成的 Rust 代码。该库设计为同时支持客户端和服务端使用。
+API documentation: [docs.rs/flare-proto](https://docs.rs/flare-proto)
 
----
-
-## 🚀 快速开始
-
-### 安装
+## Installation
 
 ```toml
 [dependencies]
-flare-proto = { path = "../flare-proto" }
-# 或者从 crates.io
-# flare-proto = "0.1.0"
+flare-proto = "1.0.1"
 ```
 
-### 使用
+Optional feature flags are reserved for client and server integrations:
+
+```toml
+flare-proto = { version = "1.0.1", features = ["client"] }
+flare-proto = { version = "1.0.1", features = ["server"] }
+```
+
+## What Is Included
+
+- Common message and content models.
+- Conversation sync request and response payloads.
+- Event, topic, and MQ envelope models.
+- Metadata helpers for pagination, filters, actors, devices, audit context,
+  and time ranges.
+- Push envelope and delivery result models.
+- Convenience helpers for packing `prost_types::Any`.
+
+## Quick Start
 
 ```rust
-use flare_proto::access_gateway::*;
-use flare_proto::signaling::*;
-use flare_proto::push::*;
-use flare_proto::storage::*;
-use flare_proto::media::*;
+use flare_proto::{
+    MessageContent,
+    MessageContentExt,
+    TextContent,
+    encode_message_content,
+    pagination_first,
+};
+
+let text = TextContent {
+    text: "hello flare".to_string(),
+    ..Default::default()
+};
+
+let content = MessageContent::from_text(text);
+let encoded = encode_message_content(&content)?;
+let page = pagination_first(20);
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
----
+## Build Behavior
 
-## 📦 包含的协议
+The package uses `prost-build` and a vendored `protoc` binary during builds, so
+users do not need to install a system protobuf compiler just to consume the
+crate. The `.proto` files remain the source of truth and are included in the
+published package.
 
-### 1. Access Gateway (`access_gateway`)
+## Related Crates
 
-业务系统推送消息给客户端的接口，包括：
-- PushMessage：推送消息给客户端
-- BatchPushMessage：批量推送消息
-- QueryUserConnections：查询用户连接状态
+| Crate | Purpose |
+|-------|---------|
+| `flare-proto` | Common protobuf model types and helpers. |
+| `flare-grpc-proto` | gRPC service definitions and tonic-generated stubs. |
+| `flare-server-core` | Server-side runtime, transport, messaging, auth, and telemetry infrastructure. |
 
-### 2. Signaling (`signaling`)
+## License
 
-信令系统服务接口，包括：
-- Login, Logout
-- UpdateOnlineStatus, GetOnlineStatus
-- RouteMessage
-- RegisterService
-
-### 3. Push (`push`)
-
-推送系统服务接口，包括：
-- PushMessage
-- BroadcastMessage
-- SendOfflineNotification
-
-### 4. Storage (`storage`)
-
-存储系统服务接口，包括：
-- StoreMessage, BatchStoreMessage
-- QueryMessages
-- DeleteMessage, GetMessageById
-
-### 5. Media (`media`)
-
-媒体服务接口，包括：
-- UploadFile (流式上传，内建去重)
-- CreateReference / DeleteReference（引用管理）
-- ListReferences（引用查询）、CleanupOrphanedAssets（孤儿清理）
-- GetFileUrl, GetFileInfo
-- DeleteFile
-- ProcessImage, ProcessVideo
-
----
-
-## 🔧 特性
-
-### 服务端特性
-
-启用服务端特性以使用服务端代码：
-
-```toml
-[dependencies]
-flare-proto = { path = "../flare-proto", features = ["server"] }
-```
-
-### 客户端特性
-
-启用客户端特性以使用客户端代码：
-
-```toml
-[dependencies]
-flare-proto = { path = "../flare-proto", features = ["client"] }
-```
-
----
-
-## 📚 相关文档
-
-- [gRPC 服务设计](../doc/GRPC_SERVICES.md)
-- [通信核心层设计](../doc/CORE_COMMUNICATION_LAYER.md)
-
----
-
-**维护者**: Flare IM Architecture Team  
-**最后更新**: 2025-11-08  
-**版本**: 0.1.0
-
+Licensed under the [MIT License](LICENSE).

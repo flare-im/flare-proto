@@ -1,4 +1,13 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("PROTOC").is_none() {
+        let protoc = protoc_bin_vendored::protoc_bin_path()?;
+        // Build scripts run before Cargo starts compiling this package and
+        // prost-build reads PROTOC synchronously below.
+        unsafe {
+            std::env::set_var("PROTOC", protoc);
+        }
+    }
+
     let compile_result = compile_protos();
 
     if let Err(e) = compile_result {

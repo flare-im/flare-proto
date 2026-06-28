@@ -1,6 +1,28 @@
-//! Flare IM **基础** protobuf（prost）：`common/*` 与辅助工具。
+//! Shared protobuf model types for Flare IM.
 //!
-//! gRPC 服务定义与 tonic 生成见 [`flare_grpc_proto`](https://docs.rs/flare-grpc-proto)（crate `flare-grpc-proto`）。
+//! `flare-proto` exposes the common wire contracts used by Flare services and
+//! SDK infrastructure: messages, message content, conversations, sync payloads,
+//! metadata, notifications, push envelopes, event-bus envelopes, and data
+//! packets.
+//!
+//! The crate intentionally contains common model types only. gRPC service
+//! definitions and tonic-generated clients/servers are published separately by
+//! `flare-grpc-proto`.
+//!
+//! # Main Modules
+//!
+//! - [`common`] re-exports generated `flare.common.v1` protobuf types.
+//! - [`response`] provides helpers for packing `prost_types::Any`.
+//! - [`metadata_builder`] provides ergonomic constructors for pagination,
+//!   filters, actor context, device context, audit context, sorting, and time
+//!   ranges.
+//! - [`message_content_ext`] provides encoding and decoding helpers for typed
+//!   message content.
+//!
+//! # Build Behavior
+//!
+//! The crate uses `prost-build` with a vendored `protoc` binary, so downstream
+//! users and docs.rs can build it without installing a system protobuf compiler.
 
 pub mod flare {
     pub mod common {
@@ -18,19 +40,19 @@ pub mod common {
 
 pub use common::push_envelope;
 
-/// `Any` 等便捷构建（不再提供旧的 response envelope 模型）。
+/// Convenience builders for `prost_types::Any`.
 pub mod response;
 
-/// 元数据/上下文类型的便捷构建（与 metadata.proto 对齐：Pagination、Filter、Actor、Device 等）
+/// Convenience builders aligned with `metadata.proto`.
 pub mod metadata_builder;
 
-// MessageContent 扩展方法（统一的编码/解码接口）
+// MessageContent extension methods with a unified encode/decode interface.
 pub mod message_content_ext;
 pub use message_content_ext::{MessageContentExt, decode_message_content, encode_message_content};
 
 pub use response::pack_any;
 
-// Metadata 便捷构建（业务层使用 pagination()、filter_eq()、device_context() 等，与 metadata.proto 一致）
+// Metadata convenience builders used by business layers.
 pub use metadata_builder::{
     actor_service, actor_system, actor_tenant_admin, actor_user, actor_with_attributes,
     actor_with_roles, audit_context, device_context, device_with_priority_critical,
@@ -40,7 +62,7 @@ pub use metadata_builder::{
     unix_millis_from_seconds,
 };
 
-// Re-export commonly used types（仅 common）
+// Re-export commonly used common model types.
 pub use common::{
     AckPayload, AppCardAction, AppCardContent, AudioContent, AudioInfo, AuditContext,
     CapabilityPacket, CardContent, ConflictResolution, ConnectionQuality, ContentVisibility,
