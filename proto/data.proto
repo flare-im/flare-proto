@@ -29,6 +29,15 @@ message TypingStatePacket {
   optional int64 occurred_at = 5;
 }
 
+// 网关聚合的"N 人正在输入"（超大群 typing 风暴防护）：服务端按会话聚合当前正在输入的用户，
+// 节流后下发一条，替代逐用户 TypingStatePacket。客户端按 typing_user_ids 采样渲染姓名 + 用 typing_count 显示总数。
+message TypingAggregatePacket {
+  string conversation_id = 1;
+  repeated string typing_user_ids = 2;  // 当前正在输入用户的**采样**（有上限），用于显示姓名
+  uint32 typing_count = 3;              // 当前正在输入的**总人数**（可大于采样数）
+  optional int64 occurred_at = 4;
+}
+
 message PresenceHintPacket {
   string user_id = 1;
   string status = 2;  // online | offline | away | busy | custom
@@ -47,6 +56,7 @@ message RealtimeControlPacket {
     TypingStatePacket typing = 10;
     PresenceHintPacket presence = 11;
     CustomData custom = 12;
+    TypingAggregatePacket typing_aggregate = 13;  // 网关聚合下发（上行仍用 typing）
   }
 }
 

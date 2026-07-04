@@ -137,6 +137,8 @@ message SnapshotConversationRow {
   int32 unread_count = 5;
   /// 当前用户在会话内的已读 seq（来自 conversation_participants.last_read_seq）
   uint64 last_read_seq = 6;
+  /// 完整会话摘要（冷启 bootstrap bundle：一次 RPC 同时携带摘要+首页消息，免二次拉取）
+  ConversationSummary summary = 7;
 }
 
 message SyncSnapshotSync {
@@ -145,6 +147,10 @@ message SyncSnapshotSync {
   bool include_deleted = 3;
   bool include_conversations = 4;
   string snapshot_cursor = 5;
+  /// true=按活跃度降序（冷启首屏 top-N 先到）；false=按 (ms,cid) 升序（增量续拉稳定翻页）
+  bool newest_first = 6;
+  /// 每页返回的会话行数（与 messages_per_conversation 正交；0=服务端默认）
+  int32 conversation_page_limit = 7;
 }
 
 message SyncSnapshotSyncRes {
@@ -182,6 +188,9 @@ message Sync {
     ConversationsSync conversations = 22;
     ConversationParticipantsSync conversation_participants = 23;
     ConversationUserSettingsSync conversation_user_settings = 24;
+    // 显式建群：客户端在 get_group_by_user_ids 时一次性把成员表交给服务端建群，
+    // 之后消息不再携带整张成员表（避免超大群建群首条消息超 NATS 单消息上限）。
+    EnsureConversationSync ensure_conversation = 25;
   }
 }
 
@@ -190,6 +199,9 @@ message SingleConversationSync {
   uint64 after_conversation_seq = 2;
   string cursor = 3;
   int32 limit = 4;
+  /// 历史回溯：>0 时返回严格小于该 seq 的最近 limit 条（服务端按 seq 降序取页、升序返回）。
+  /// 与 after_conversation_seq / cursor 互斥；方向显式化，替代曾经的 "before:" 字符串游标约定。
+  uint64 before_conversation_seq = 5;
 }
 
 message MultiConversationSync {
@@ -277,6 +289,7 @@ message SyncRes {
     ConversationsSyncRes conversations = 22;
     ConversationParticipantsSyncRes conversation_participants = 23;
     ConversationUserSettingsSyncRes conversation_user_settings = 24;
+    EnsureConversationSyncRes ensure_conversation = 25;
   }
 }
 
@@ -336,6 +349,21 @@ message UpdateSyncCursorSyncRes {
 
 message ConversationUserSettingsSyncRes {
   ConversationUserSettings settings = 1;
+}
+
+/// 显式建群请求：携带完整成员表，服务端据此创建/确保会话存在（幂等）。
+message EnsureConversationSync {
+  string conversation_id = 1;
+  int32 conversation_type = 2;
+  string business_type = 3;
+  string channel_id = 4;
+  repeated string member_ids = 5;
+}
+message EnsureConversationSyncRes {
+  string conversation_id = 1;
+  bool ok = 2;
+  string error = 3;
+  uint64 member_count = 4;
 }
 
 message ConversationsSyncRes {
