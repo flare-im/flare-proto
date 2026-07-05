@@ -1,4 +1,7 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let proto_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("proto");
+    println!("cargo:metadata=proto_path={}", proto_path.display());
+
     if std::env::var_os("PROTOC").is_none() {
         let protoc = protoc_bin_vendored::protoc_bin_path()?;
         // Build scripts run before Cargo starts compiling this package and
