@@ -91,9 +91,13 @@ message MessageRecallEvent {
 }
 
 message MessageEditEvent {
+  // 3 = 原 edit_version：服务端无法在事件发布前同步分配版本号，实际恒为 0，
+  // 编辑的新旧收敛已由 conversation_seq 承担。留空字段号防止将来被复用导致线格式错乱。
+  reserved 3;
+  reserved "edit_version";
+
   string server_msg_id = 1;  // 被编辑消息的服务端 ID
   MessageContent new_content = 2;  // 新内容（与 message_type 一致）
-  int32 edit_version = 3;  // 编辑版本号（递增）
   string reason = 4;  // 编辑原因（可选）
   bool show_edited_mark = 5;  // 是否展示「已编辑」标记
 }
