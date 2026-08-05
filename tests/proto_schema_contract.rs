@@ -1,8 +1,14 @@
 use std::fs;
 use std::path::Path;
 
+/// 契约门禁：时间字段用 int64 且不带 `*_ms` 后缀，不用 google.protobuf.Timestamp。
+///
+/// **`reserved` 不在禁止之列。** 这条规则原先把 `reserved` 一并禁掉，理由是
+/// 「greenfield 不需要兼容历史」—— 但 `reserved` 保护的是**将来**：字段删掉后
+/// 把号占住，防止后人复用同一个号导致线格式错乱。禁掉它等于要求删除一道
+/// 防事故的护栏，方向正好反了（见 event.proto MessageEditEvent 的 reserved 3）。
 #[test]
-fn proto_contract_has_no_legacy_reserved_slots_or_timestamp_well_known_type() {
+fn proto_contract_uses_int64_instants_and_no_timestamp_well_known_type() {
     let proto_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("proto");
     let mut violations = Vec::new();
 
@@ -16,8 +22,7 @@ fn proto_contract_has_no_legacy_reserved_slots_or_timestamp_well_known_type() {
 
         let source = fs::read_to_string(&path).expect("read proto source");
         for (line_idx, line) in source.lines().enumerate() {
-            if line.contains("reserved ")
-                || line.contains("google.protobuf.Timestamp")
+            if line.contains("google.protobuf.Timestamp")
                 || line.contains("_at_ms")
                 || line.contains("_time_ms")
                 || line.contains("timestamp_ms")
@@ -34,7 +39,7 @@ fn proto_contract_has_no_legacy_reserved_slots_or_timestamp_well_known_type() {
 
     assert!(
         violations.is_empty(),
-        "greenfield proto contract should use int64 instant fields without *_ms suffixes, interval fields with explicit units, and no legacy reserved slots:\n{}",
+        "proto contract should use int64 instant fields without *_ms suffixes and no google.protobuf.Timestamp:\n{}",
         violations.join("\n")
     );
 }
