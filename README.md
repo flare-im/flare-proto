@@ -44,14 +44,14 @@ API documentation: [docs.rs/flare-proto](https://docs.rs/flare-proto)
 
 ```toml
 [dependencies]
-flare-proto = "1.0.1"
+flare-proto = "2.0.1"
 ```
 
 Optional feature flags are reserved for client and server integrations:
 
 ```toml
-flare-proto = { version = "1.0.1", features = ["client"] }
-flare-proto = { version = "1.0.1", features = ["server"] }
+flare-proto = { version = "2.0.1", features = ["client"] }
+flare-proto = { version = "2.0.1", features = ["server"] }
 ```
 
 ## What Is Included
