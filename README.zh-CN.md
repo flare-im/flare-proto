@@ -1,6 +1,6 @@
 # Flare Proto
 
-English · [中文](README.zh-CN.md)
+[English](README.md) · 中文
 
 > ## ℹ️ 这是通信基础设施，不是开箱即用的 IM 产品
 >
@@ -30,41 +30,38 @@ English · [中文](README.zh-CN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.94%2B-orange.svg)](https://www.rust-lang.org/)
 
-`flare-proto` contains the shared protobuf model layer for Flare IM.
-It publishes the generated Rust types for common envelopes, messages,
-conversation sync payloads, metadata, notifications, data packets, and
-event-bus envelopes.
+`flare-proto` 包含 Flare IM 的共享 protobuf 模型层。它发布用于通用信封、
+消息、会话同步载荷、元数据、通知、数据包以及事件总线信封的生成的 Rust 类型。
 
-This crate intentionally stays focused on common wire contracts. gRPC service
-stubs and tonic clients live in `flare-grpc-proto`.
+本 crate 有意专注于通用的传输契约。gRPC 服务桩和 tonic 客户端位于
+`flare-grpc-proto`。
 
-API documentation: [docs.rs/flare-proto](https://docs.rs/flare-proto)
+API 文档：[docs.rs/flare-proto](https://docs.rs/flare-proto)
 
-## Installation
+## 安装
 
 ```toml
 [dependencies]
 flare-proto = "1.0.1"
 ```
 
-Optional feature flags are reserved for client and server integrations:
+可选的 feature 标志为客户端与服务端集成预留：
 
 ```toml
 flare-proto = { version = "1.0.1", features = ["client"] }
 flare-proto = { version = "1.0.1", features = ["server"] }
 ```
 
-## What Is Included
+## 包含内容
 
-- Common message and content models.
-- Conversation sync request and response payloads.
-- Event, topic, and MQ envelope models.
-- Metadata helpers for pagination, filters, actors, devices, audit context,
-  and time ranges.
-- Push envelope and delivery result models.
-- Convenience helpers for packing `prost_types::Any`.
+- 通用消息与内容模型。
+- 会话同步请求与响应载荷。
+- 事件、主题与 MQ 信封模型。
+- 用于分页、过滤器、操作者、设备、审计上下文与时间范围的元数据辅助工具。
+- 推送信封与投递结果模型。
+- 用于打包 `prost_types::Any` 的便捷辅助工具。
 
-## Quick Start
+## 快速开始
 
 ```rust
 use flare_proto::{
@@ -86,24 +83,23 @@ let page = pagination_first(20);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-## Build Behavior
+## 构建行为
 
-The package uses `prost-build` and a vendored `protoc` binary during builds, so
-users do not need to install a system protobuf compiler just to consume the
-crate. The `.proto` files remain the source of truth and are included in the
-published package.
+该包在构建期间使用 `prost-build` 和一个内置（vendored）的 `protoc` 二进制文件，
+因此使用者无需为了消费该 crate 而安装系统级的 protobuf 编译器。`.proto` 文件
+仍是唯一真源，并包含在已发布的包中。
 
-## Related Crates
+## 相关 Crate
 
-| Crate | Purpose |
-|-------|---------|
-| `flare-proto` | Common protobuf model types and helpers. |
-| `flare-grpc-proto` | gRPC service definitions and tonic-generated stubs. |
-| `flare-server-core` | Server-side runtime, transport, messaging, auth, and telemetry infrastructure. |
+| Crate | 用途 |
+|-------|------|
+| `flare-proto` | 通用 protobuf 模型类型与辅助工具。 |
+| `flare-grpc-proto` | gRPC 服务定义与 tonic 生成的桩。 |
+| `flare-server-core` | 服务端运行时、传输、消息、鉴权与遥测基础设施。 |
 
-## License
+## 许可证
 
-Licensed under the [MIT License](LICENSE).
+以 [MIT 许可证](LICENSE) 授权。
 
 ---
 
