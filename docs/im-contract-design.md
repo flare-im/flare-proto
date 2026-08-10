@@ -1,7 +1,6 @@
-# Flare Proto General IM Contract Design
+# Flare Proto: General IM Contract Design
 
-> Date: 2026-06-05
-> Scope: `flare-proto` common contract and its immediate downstream consumers.
+> Scope: the `flare-proto` common contract and its immediate downstream consumers.
 
 ## Goal
 
