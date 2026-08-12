@@ -83,6 +83,11 @@ message ConversationUserSettings {
   optional int64 mute_until = 4;
   string draft = 5;
   uint64 settings_version = 6;
+  // 只接收提到我的消息：其余消息照常投递（时间线不缺内容），但不产生离线推送。
+  //
+  // 与 is_muted 正交：muted 是「一条都别响」，mention_only 是「只有点名才响」。
+  // 合并成一个枚举会让老客户端的 is_muted 无处安放，所以保持两个布尔。
+  bool is_mention_only = 7;
 }
 
 message ConversationParticipant {
@@ -102,6 +107,9 @@ message ConversationParticipant {
   // 取负值是「从加入时刻起可见」的哨兵，由核心在写入时解析为当时的会话 seq——
   // 业务层不必自己先查 seq 再传（省一次往返，也不会在查与写之间漏进新消息）。
   int64 visible_from_seq = 7;
+  // 只接收提到我的消息（见 ConversationUserSettings.is_mention_only）。
+  // 放在参与者上是因为推送侧要按会话批量判定，不适合逐个查用户设置。
+  bool mention_only = 8;
 }
 
 /// 会话策略（多端冲突、历史同步、搜索/文件权限等）
