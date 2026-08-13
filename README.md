@@ -27,7 +27,7 @@ English · [中文](README.zh-CN.md)
 
 [![Crates.io](https://img.shields.io/crates/v/flare-proto.svg)](https://crates.io/crates/flare-proto)
 [![Documentation](https://docs.rs/flare-proto/badge.svg)](https://docs.rs/flare-proto)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.94%2B-orange.svg)](https://www.rust-lang.org/)
 
 `flare-proto` contains the shared protobuf model layer for Flare IM.
@@ -103,7 +103,7 @@ published package.
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+Licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
