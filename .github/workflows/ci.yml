@@ -52,3 +52,52 @@ jobs:
 
       - name: cargo deny（许可 / 来源 / 重复依赖）
         run: cargo deny check
+
+  # MSRV 门禁：Cargo.toml 里一直写着 rust-version，但在此之前**没有任何地方验证过**。
+  # 声明一个最低版本却不验证，等于对外承诺了一个没人试过的编译环境:开发机常年跟着
+  # stable 走,哪天用上了更新的特性也不会有任何信号——直到外部用户按我们写的
+  # 最低版本去编,然后编不过。
+  #
+  # 工具链版本从 Cargo.toml 现读,不在这里再写一遍:同一个数字放两处必然漂移。
+  msrv:
+    name: 最低支持 Rust 版本
+    runs-on: ubuntu-latest
+    # 这道门禁问的是「编不编得过」,不是「lint 干不干净」。老工具链的 lint 集合
+    # 与 stable 不同,带 -D warnings 会因为无关的 lint 差异变红,把一个有意义的
+    # 判据变成噪音,最后没人看——这个项目已经吃过一次长期红的亏。
+    env:
+      RUSTFLAGS: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 读取 Cargo.toml 声明的 MSRV
+        id: msrv
+        run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check（按声明的 MSRV）
+        run: cargo check --all-targets
+
+  # 「外部能不能构建出来」——发布链的第一环。
+  #
+  # 依赖写成 { version, path } 双声明：本地走 path，外部消费者走 registry。
+  # 同级目录一在就永远编得过，哪怕 registry 上根本没有那个版本；第三方拉下来
+  # 编不出来，而普通 CI 全绿。这类缺陷零信号,只有真去 crates.io 拉的人撞得到。
+  #
+  # `cargo publish --dry-run` 是唯一会把 path 依赖换成 registry 版本再解析一遍的
+  # 命令。别换成 cargo build——那验的是本地,不是外部。
+  publishable:
+    name: 外部能否构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: registry 依赖可解析
+        run: cargo publish --dry-run --allow-dirty
