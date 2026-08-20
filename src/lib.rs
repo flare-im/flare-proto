@@ -86,3 +86,21 @@ pub use common::{
     SyncSkipItem, SyncSliceItem, SyncTombstoneItem, SystemPayload, TextContent, TypingStatePacket,
     UpdateSyncCursorSync, UpdateSyncCursorSyncRes, VideoContent, VideoInfo,
 };
+
+/// README 里的代码块当 doctest 编译。
+///
+/// README 是 crates.io 页面渲染的内容，也是外部使用者实际拿得到的文档；
+/// 但 `cargo test` / `cargo clippy` 都不碰它，样例跟着 API 一起腐坏没有任何信号。
+/// 本仓的样例本来就是按 doctest 写的（末尾那行 `# Ok::<(), _>(())` 是 rustdoc
+/// 的隐藏行），只是从来没被接上。
+///
+/// 用 `cfg(doctest)` 而不是 `#![doc = include_str!(...)]`：后者会把整份 README
+/// （标题、徽章、安装说明）灌进 crate 级文档，与 lib.rs 现有的模块说明重复。
+/// 这个写法只在跑 doctest 时存在，不影响公开文档。
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeEn;
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.zh-CN.md")]
+pub struct ReadmeZh;

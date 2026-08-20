@@ -67,7 +67,9 @@ flare-proto = { version = "2.1", features = ["server"] }
 ## Quick Start
 
 ```rust
+use flare_proto::common::message_content::Content;
 use flare_proto::{
+    Message,
     MessageContent,
     MessageContentExt,
     TextContent,
@@ -80,8 +82,20 @@ let text = TextContent {
     ..Default::default()
 };
 
-let content = MessageContent::from_text(text);
-let encoded = encode_message_content(&content)?;
+let content = MessageContent {
+    content: Some(Content::Text(text)),
+};
+
+// 直接编码 content 本身
+let content_bytes = content.encode_to_bytes()?;
+
+// encode_message_content 接的是一条完整的 Message，不是 MessageContent
+let message = Message {
+    content: Some(content),
+    ..Default::default()
+};
+let encoded = encode_message_content(&message)?;
+
 let page = pagination_first(20);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

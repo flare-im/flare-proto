@@ -179,7 +179,14 @@ jobs:
           fail=0
           for f in README.md README.zh-CN.md; do
             [ -f "$f" ] || continue
-            pins=$(grep -oE "$name *= *\"[^\"]+\"" "$f" | sed 's/.*"\(.*\)"/\1/' | sort -u)
+            # 两种写法都要认，只认字符串式会在依赖块改成表式那天悄悄失效：
+            #   flare-x = "1.2"                              ← 字符串式
+            #   flare-x = { version = "1.2", features = [] }  ← 表式
+            # 这不是假设：flare-im-core-sdk 的安装块为了标注 feature 就是表式的，
+            # 第一版正则当场把 pins 读成空，于是「一个 pin 都没有」那条误判成红。
+            # 取依赖那一行里第一个以数字开头的带引号串，两种写法都覆盖得到。
+            pins=$(grep -E "^[[:space:]]*$name[[:space:]]*=" "$f" \
+                     | grep -oE '"[0-9][^"]*"' | tr -d '"' | sort -u)
             if [ -z "$pins" ]; then
               echo "✗ $f 里没有任何 $name 的依赖示例"
               echo "  这是个已发布的 crate，README 就是它的 crates.io 页面——上面得写清楚怎么装。"
