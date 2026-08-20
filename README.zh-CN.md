@@ -42,14 +42,14 @@ API 文档：[docs.rs/flare-proto](https://docs.rs/flare-proto)
 
 ```toml
 [dependencies]
-flare-proto = "2.0.1"
+flare-proto = "2.1"
 ```
 
 可选的 feature 标志为客户端与服务端集成预留：
 
 ```toml
-flare-proto = { version = "2.0.1", features = ["client"] }
-flare-proto = { version = "2.0.1", features = ["server"] }
+flare-proto = { version = "2.1", features = ["client"] }
+flare-proto = { version = "2.1", features = ["server"] }
 ```
 
 ## 包含内容
@@ -99,7 +99,7 @@ let page = pagination_first(20);
 
 ## 许可证
 
-以 [MIT 许可证](LICENSE) 授权。
+依据 [Apache License 2.0](LICENSE) 授权。
 
 ---
 
