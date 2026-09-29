@@ -58,6 +58,29 @@ message PushTaskEnvelope {
   PushTaskPayloadKind payload_kind = 9;
 }
 
+// Versioned, authenticated broker record. This is a NEW wire format: never put it
+// on a topic while a legacy MqEnvelope/PushEnvelope/PushTaskEnvelope consumer is
+// still subscribed. The inner payload is kept byte-for-byte; no protobuf map is
+// re-encoded when calculating its digest or signature. The outer v1 wrapper
+// must use one occurrence per known tag, ascending tag order, minimal varints,
+// and no unknown fields; verifiers reject non-canonical encodings.
+message SignedPushRecordV1 {
+  uint32 version = 1;                 // Must be exactly 1.
+  string logical_topic = 2;          // Exact broker topic/subject, not a wildcard.
+  string logical_key = 3;            // Exact broker publish key; required.
+  string tenant_id = 4;
+  string producer_id = 5;            // Authorized workload identity.
+  string key_id = 6;                 // Producer-scoped Ed25519 public key ID.
+  string event_id = 7;               // Stable idempotency identity.
+  string payload_schema = 8;         // Exact inner Protobuf schema identifier.
+  bytes payload_sha256 = 9;          // SHA-256 of the original payload bytes.
+  int64 issued_at = 10;              // Unix epoch milliseconds.
+  int64 expires_at = 11;             // Unix epoch milliseconds.
+  string source_event_id = 12;       // Nonempty for a derived record.
+  bytes payload = 13;                // Original inner bytes; never re-encode to verify.
+  bytes signature = 14;              // Ed25519 over the v1 domain-separated frame.
+}
+
 message ConversationUpdateEnvelope {
   string user_id = 1;
   string conversation_id = 2;

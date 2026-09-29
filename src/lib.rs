@@ -82,9 +82,9 @@ pub use common::{
     PushDelivered, PushEnvelope, PushFailed, PushOptions, PushPayloadKind, PushResult,
     PushTargetType, PushTaskEnvelope, PushTaskPayloadKind, QueryEventsSync, QueryEventsSyncRes,
     ReactionAction, RealtimeControlPacket, RetentionMode, RetentionTrigger, SendAccepted, SendAck,
-    SendAckDurability, SingleConversationSync, SingleConversationSyncRes, Sync, SyncRes,
-    SyncSkipItem, SyncSliceItem, SyncTombstoneItem, SystemPayload, TextContent, TypingStatePacket,
-    UpdateSyncCursorSync, UpdateSyncCursorSyncRes, VideoContent, VideoInfo,
+    SendAckDurability, SignedPushRecordV1, SingleConversationSync, SingleConversationSyncRes, Sync,
+    SyncRes, SyncSkipItem, SyncSliceItem, SyncTombstoneItem, SystemPayload, TextContent,
+    TypingStatePacket, UpdateSyncCursorSync, UpdateSyncCursorSyncRes, VideoContent, VideoInfo,
 };
 
 /// README 里的代码块当 doctest 编译。
