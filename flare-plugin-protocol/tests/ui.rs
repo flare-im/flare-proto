@@ -362,3 +362,53 @@ fn malformed_value_labels_and_conditions_are_rejected() {
     );
     assert!(base(json!({"fields.values": {"open": "Open"}, "actions.hiddenWhen": [{"path": "/status", "anyOf": ["closed"]}]})).validate().is_ok());
 }
+#[test]
+fn message_state_overlays_payload_and_rejects_unbounded_values() {
+    let state: PluginMessageState = serde_json::from_value(json!({
+        "version": 3,
+        "values": {"status": "completed", "claimedCount": 2, "recipients": ["u1"], "note": null}
+    }))
+    .unwrap();
+    state.validate().unwrap();
+    let merged = state.merge_into(&json!({"status": "open", "note": "x", "packetId": "p"}));
+    assert_eq!(
+        merged,
+        json!({"status": "completed", "claimedCount": 2, "recipients": ["u1"], "packetId": "p"})
+    );
+    let invalid = |values: serde_json::Value| {
+        serde_json::from_value::<PluginMessageState>(json!({"version": 1, "values": values}))
+            .map_or(true, |s| s.validate().is_err())
+    };
+    assert!(invalid(json!({"nested": {"a": 1}})));
+    assert!(invalid(json!({"bad-key": 1})));
+    assert!(invalid(json!({"list": [1, 2]})));
+    assert!(invalid(json!({"text": "x".repeat(257)})));
+    assert!(invalid(serde_json::Value::Object(
+        (0..17).map(|i| (format!("k{i}"), json!(i))).collect()
+    )));
+    assert!(invalid(json!({"k".repeat(65): 1})));
+    assert!(invalid(json!({"list": vec!["u"; 101]})));
+    // 16 maximal strings fit the per-value bound but exceed the 4 KiB total.
+    assert!(invalid(serde_json::Value::Object(
+        (0..16)
+            .map(|i| (format!("k{i}"), json!("x".repeat(256))))
+            .collect()
+    )));
+    let roomy: PluginMessageState = serde_json::from_value(json!({
+        "version": u64::MAX,
+        "values": {"recipients": vec!["u"; 100], "ok": true, "n": 1.5}
+    }))
+    .unwrap();
+    roomy.validate().unwrap();
+    assert_eq!(
+        roomy.merge_into(&json!(["not", "an", "object"])),
+        json!({"recipients": vec!["u"; 100], "ok": true, "n": 1.5}),
+        "a non-object payload is replaced by the state values"
+    );
+    assert!(
+        serde_json::from_value::<PluginMessageState>(
+            json!({"version": 1, "values": {}, "extra": 1})
+        )
+        .is_err()
+    );
+}

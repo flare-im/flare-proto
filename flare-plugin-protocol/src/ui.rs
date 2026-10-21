@@ -294,6 +294,55 @@ impl PluginMessage {
         Ok(())
     }
 }
+/// Presentation state a plugin returns for the message an action came from
+/// (`data.messageState`). Clients keep the highest version per message and
+/// overlay `values` on the payload before resolving. It grants nothing: every
+/// action is still authorized by the plugin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginMessageState {
+    pub version: u64,
+    pub values: serde_json::Map<String, Value>,
+}
+impl PluginMessageState {
+    pub const MAX_KEYS: usize = 16;
+    pub const MAX_BYTES: usize = 4096;
+    pub fn validate(&self) -> Result<()> {
+        let short = |s: &str| s.len() <= 256 && !s.chars().any(char::is_control);
+        let valid_value = |value: &Value| match value {
+            Value::Null | Value::Bool(_) | Value::Number(_) => true,
+            Value::String(s) => short(s),
+            Value::Array(items) => {
+                items.len() <= 100 && items.iter().all(|i| i.as_str().is_some_and(short))
+            }
+            Value::Object(_) => false,
+        };
+        if self.values.len() > Self::MAX_KEYS
+            || self.values.iter().any(|(key, value)| {
+                key.is_empty()
+                    || key.len() > 64
+                    || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    || !valid_value(value)
+            })
+            || serde_json::to_vec(self).map_or(true, |v| v.len() > Self::MAX_BYTES)
+        {
+            return Err(ProtocolError::Denied("invalid plugin message state"));
+        }
+        Ok(())
+    }
+    /// Shallow overlay: a value replaces the top-level payload key, null removes it.
+    pub fn merge_into(&self, payload: &Value) -> Value {
+        let mut merged = payload.as_object().cloned().unwrap_or_default();
+        for (key, value) in &self.values {
+            if value.is_null() {
+                merged.remove(key);
+            } else {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+        Value::Object(merged)
+    }
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedPluginView {
