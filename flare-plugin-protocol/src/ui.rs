@@ -153,6 +153,11 @@ pub enum NativeCapability {
     ClipboardWrite,
 }
 impl UiDocument {
+    /// The title in `locale`, with the same language fallback as resolved views
+    /// (exact tag, then same language); the declared title otherwise.
+    pub fn localized_title(&self, locale: &str) -> &str {
+        translation_for(&self.translations, locale).map_or(&self.title, |t| &t.title)
+    }
     pub fn validate(&self) -> Result<()> {
         let valid_text =
             |s: &str| !s.trim().is_empty() && s.len() <= 256 && !s.chars().any(char::is_control);
@@ -259,6 +264,11 @@ pub struct UiCatalog {
     pub valid_until_ms: i64,
     pub plugins: Vec<ClientPlugin>,
 }
+/// A plugin card in a conversation. Besides cards the host builds itself, an
+/// operation result may carry one as `data.message` (see [`Self::from_result`]):
+/// the host then sends it to the conversation the action ran in as a plugin
+/// message, with a client message id that is stable for that action, and every
+/// receiver renders it through the plugin's message-content contribution.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginMessage {
@@ -269,6 +279,13 @@ pub struct PluginMessage {
     pub payload: Value,
 }
 impl PluginMessage {
+    /// The message a successful operation result of `plugin_id` asks the host to
+    /// post: `data.message`, only when it is a valid message of that same plugin.
+    /// Anything else (absent, malformed, another plugin's card) posts nothing.
+    pub fn from_result(plugin_id: &str, data: &Value) -> Option<Self> {
+        let message: Self = serde_json::from_value(data.get("message")?.clone()).ok()?;
+        (message.plugin_id == plugin_id && message.validate().is_ok()).then_some(message)
+    }
     pub fn validate(&self) -> Result<()> {
         let identifier = |id: &str| {
             !id.is_empty()

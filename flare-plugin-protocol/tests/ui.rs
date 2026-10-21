@@ -412,3 +412,127 @@ fn message_state_overlays_payload_and_rejects_unbounded_values() {
         .is_err()
     );
 }
+
+fn with_composer_action(extra: serde_json::Value) -> serde_json::Value {
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(include_bytes!("fixtures/plugin-ui-manifest.json")).unwrap();
+    let mut contribution = json!({
+        "id": "example.poll.create",
+        "kind": "composer-action",
+        "schemaVersion": 1,
+        "schema": {"title": "投票", "translations": {"en-US": {"title": "Poll", "fields": [], "actions": {}}}},
+        "requiredPermissions": ["example.poll.read"]
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        contribution[key] = value.clone();
+    }
+    manifest["clientExtensions"]["contributions"]
+        .as_array_mut()
+        .unwrap()
+        .push(contribution);
+    manifest
+}
+
+#[test]
+fn contribution_icon_and_order_are_optional_and_bounded() {
+    let parse = |extra| {
+        PluginManifest::from_json(&serde_json::to_vec(&with_composer_action(extra)).unwrap())
+    };
+    // Older manifests carry neither field.
+    let plain = parse(json!({})).unwrap();
+    let action = plain.client_extensions.contributions.last().unwrap();
+    assert_eq!((action.icon.as_deref(), action.order), (None, 1000));
+    let declared = parse(json!({"icon": "red-packet", "order": 100})).unwrap();
+    let action = declared.client_extensions.contributions.last().unwrap();
+    assert_eq!(
+        (action.icon.as_deref(), action.order),
+        (Some("red-packet"), 100)
+    );
+    assert!(parse(json!({"order": -5})).is_ok(), "order is any i32");
+    for icon in [
+        "",
+        "Red-packet",
+        "red_packet",
+        "red--packet",
+        "-red",
+        "red-",
+        "9lives",
+        "red packet",
+        "a234567890123456789012345678901234",
+    ] {
+        assert!(
+            matches!(
+                parse(json!({"icon": icon})),
+                Err(flare_plugin_protocol::ProtocolError::InvalidManifest { ref field, .. })
+                    if field == "clientExtensions.contributions.icon"
+            ),
+            "icon {icon:?} must be rejected"
+        );
+    }
+    assert!(parse(json!({"icon": "a2345678901234567890123456789012"})).is_ok());
+    assert!(parse(json!({"order": 1.5})).is_err());
+    // Defaults are not written back, so a re-serialized older manifest is unchanged.
+    let raw = serde_json::to_value(&plain.client_extensions.contributions).unwrap();
+    assert!(
+        raw.as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c.get("icon").is_none() && c.get("order").is_none())
+    );
+    let raw =
+        serde_json::to_value(declared.client_extensions.contributions.last().unwrap()).unwrap();
+    assert_eq!(
+        (&raw["icon"], &raw["order"]),
+        (&json!("red-packet"), &json!(100))
+    );
+}
+
+#[test]
+fn localized_title_uses_the_view_language_fallback() {
+    let manifest =
+        PluginManifest::from_json(&serde_json::to_vec(&with_composer_action(json!({}))).unwrap())
+            .unwrap();
+    let schema = &manifest
+        .client_extensions
+        .contributions
+        .last()
+        .unwrap()
+        .schema;
+    assert_eq!(schema.localized_title("en-US"), "Poll");
+    assert_eq!(schema.localized_title("en-GB"), "Poll");
+    assert_eq!(schema.localized_title("en"), "Poll");
+    assert_eq!(schema.localized_title("zh-CN"), "投票");
+    assert_eq!(schema.localized_title(""), "投票");
+}
+
+#[test]
+fn result_message_is_posted_only_for_a_valid_card_of_the_same_plugin() {
+    let card = json!({"pluginId":"example.poll","contributionId":"example.poll.card","schemaVersion":1,
+        "summary":"投票","payload":{"pollId":"p-1"}});
+    let message = PluginMessage::from_result("example.poll", &json!({"message": card})).unwrap();
+    assert_eq!(message.contribution_id, "example.poll.card");
+    assert_eq!(message.payload, json!({"pollId":"p-1"}));
+    let rejected =
+        |data: serde_json::Value| PluginMessage::from_result("example.poll", &data).is_none();
+    assert!(rejected(json!({})), "no message, nothing to post");
+    assert!(rejected(json!({"message": null})));
+    assert!(rejected(json!("not an object")));
+    assert!(
+        PluginMessage::from_result("other.plugin", &json!({"message": card})).is_none(),
+        "a plugin cannot post another plugin's card"
+    );
+    for (key, value) in [
+        ("contributionId", json!("other.plugin.card")),
+        ("schemaVersion", json!(2)),
+        ("payload", json!(["not", "an", "object"])),
+        ("summary", json!("line\u{0}break")),
+        ("extra", json!(true)),
+    ] {
+        let mut bad = card.clone();
+        bad[key] = value;
+        assert!(
+            rejected(json!({"message": bad})),
+            "{key} makes the message invalid"
+        );
+    }
+}

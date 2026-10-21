@@ -170,6 +170,12 @@ pub enum ClientPlatform {
     Harmonyos,
 }
 
+/// Kit icon registry names: kebab-case, starting with a letter (`red-packet`).
+pub const UI_ICON_PATTERN: &str = r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$";
+pub const UI_ICON_MAX_LEN: usize = 32;
+/// Order of a contribution that declares none.
+pub const DEFAULT_UI_ORDER: i32 = 1000;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UiContribution {
@@ -178,6 +184,39 @@ pub struct UiContribution {
     pub schema_version: u32,
     pub schema: crate::ui::UiDocument,
     pub required_permissions: Vec<String>,
+    /// Name in the design kit's icon registry. Presentation only: a kit that
+    /// does not know the name shows its generic plugin icon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(max = UI_ICON_MAX_LEN), regex(pattern = UI_ICON_PATTERN))]
+    pub icon: Option<String>,
+    /// Ascending position among entries of the same kind (default 1000). Hosts
+    /// list plugin entries after their built-in ones; ties sort by title.
+    #[serde(
+        default = "default_ui_order",
+        skip_serializing_if = "is_default_ui_order"
+    )]
+    #[schemars(extend("default" = DEFAULT_UI_ORDER))]
+    pub order: i32,
+}
+
+fn default_ui_order() -> i32 {
+    DEFAULT_UI_ORDER
+}
+
+fn is_default_ui_order(order: &i32) -> bool {
+    *order == DEFAULT_UI_ORDER
+}
+
+/// Whether `value` is a well-formed kit icon name (see [`UI_ICON_PATTERN`]).
+pub fn is_ui_icon_name(value: &str) -> bool {
+    value.len() <= UI_ICON_MAX_LEN
+        && value.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && value.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -453,6 +492,11 @@ impl PluginManifest {
                 "must be positive",
             )?;
             contribution.schema.validate()?;
+            ensure(
+                contribution.icon.as_deref().is_none_or(is_ui_icon_name),
+                "clientExtensions.contributions.icon",
+                "expected kebab-case kit icon name of at most 32 bytes",
+            )?;
             ensure(
                 contribution.id.starts_with(&format!("{}.", self.plugin_id)),
                 "clientExtensions.id",
