@@ -138,3 +138,7 @@ let page = pagination_first(20);
 
 > 边界划分与不变承诺见 [GOVERNANCE](https://github.com/flare-im/flare-im-core-server/blob/main/GOVERNANCE.md)。
 > 简言之：**已开源的不会被收回，鉴权与 hooks 契约永远开源、不会为逼迫付费而阉割。**
+
+## 插件平台协议
+
+通用 `flare-plugin-protocol` crate 位于 [flare-plugin-protocol](flare-plugin-protocol/README.md)。Core、客户端 SDK 与插件宿主复用 Manifest、发布者签名、Registry、租户授权与生命周期契约，不依赖业务插件仓库或市场在线。

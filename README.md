@@ -142,3 +142,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 > 边界划分与不变承诺见 [GOVERNANCE](https://github.com/flare-im/flare-im-core-server/blob/main/GOVERNANCE.md)。
 > 简言之：**已开源的不会被收回，鉴权与 hooks 契约永远开源、不会为逼迫付费而阉割。**
+
+## Plugin platform protocol
+
+The business-neutral `flare-plugin-protocol` crate lives in [flare-plugin-protocol](flare-plugin-protocol/README.md). Core, client SDKs and plugin hosts share its Manifest, publisher signatures, Registry, tenant grant and lifecycle contracts. It is independent of business plugin repositories and marketplace availability.
