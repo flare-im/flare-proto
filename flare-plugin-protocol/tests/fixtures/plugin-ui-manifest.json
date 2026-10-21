@@ -1,0 +1,142 @@
+{
+  "apiVersion": "1.0",
+  "artifact": {
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "signatureRef": "REPLACE_WITH_RELEASE_SIGNATURE_REFERENCE"
+  },
+  "capabilities": [
+    {
+      "id": "example.poll",
+      "operations": [
+        {
+          "id": "vote",
+          "idempotent": true,
+          "inputSchema": {
+            "type": "object"
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "permissionIds": [
+            "example.poll.read"
+          ],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "details",
+          "idempotent": true,
+          "inputSchema": {
+            "type": "object"
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "permissionIds": [
+            "example.poll.read"
+          ],
+          "timeoutMs": 10000
+        }
+      ]
+    }
+  ],
+  "clientExtensions": {
+    "contributions": [
+      {
+        "id": "example.poll.card",
+        "kind": "message-content",
+        "requiredPermissions": [
+          "example.poll.read"
+        ],
+        "schema": {
+          "title": "投票",
+          "fields": [
+            {
+              "label": "问题",
+              "path": "/question"
+            },
+            {
+              "label": "状态",
+              "path": "/status"
+            }
+          ],
+          "actions": [
+            {
+              "id": "details",
+              "label": "查看投票",
+              "target": {
+                "kind": "operation",
+                "operation": "example.poll.details"
+              },
+              "input": {
+                "pollId": "/pollId"
+              }
+            },
+            {
+              "id": "vote",
+              "label": "参与投票",
+              "target": {
+                "kind": "operation",
+                "operation": "example.poll.vote"
+              },
+              "input": {
+                "pollId": "/pollId"
+              }
+            }
+          ],
+          "translations": {
+            "en-US": {
+              "title": "Poll",
+              "fields": [
+                "Question",
+                "Status"
+              ],
+              "actions": {
+                "details": "View poll",
+                "vote": "Vote"
+              }
+            }
+          }
+        },
+        "schemaVersion": 1
+      }
+    ],
+    "nativeCapabilities": [],
+    "platforms": [
+      "web",
+      "tauri",
+      "android",
+      "ios",
+      "flutter",
+      "harmonyos"
+    ]
+  },
+  "dataPolicy": {
+    "migrationPolicy": "versioned",
+    "tenantIsolation": "required",
+    "uninstallBehavior": "export-then-retain"
+  },
+  "description": "Protocol-only UI acceptance fixture",
+  "displayName": "Example Poll",
+  "manifestVersion": 1,
+  "permissions": [
+    {
+      "dataScopes": [
+        "poll.participant"
+      ],
+      "description": "Read or answer the example poll",
+      "id": "example.poll.read",
+      "riskLevel": "high"
+    }
+  ],
+  "pluginId": "example.poll",
+  "publisher": {
+    "displayName": "Flare",
+    "publisherId": "flare"
+  },
+  "runtime": {
+    "kind": "grpc",
+    "protocol": "flare.capability.v1",
+    "service": "flare.capability.v1.ExtensionPlugin"
+  },
+  "version": "0.1.0"
+}
