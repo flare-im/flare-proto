@@ -1,12 +1,23 @@
-//! Host capabilities are explicit, read-only, and scoped to the conversation
-//! bound by the invoking user. Raw SQL, arbitrary URLs and bearer forwarding
-//! are deliberately absent from this contract.
-use crate::{ProtocolError, Result};
+//! Host capabilities are explicit. Reads ([`ResourceRequest`]) are scoped to the
+//! conversation bound by the invoking user. The one write
+//! ([`ResourceWriteRequest`]) publishes shared state for an entity of the
+//! calling plugin only. Raw SQL, arbitrary URLs and bearer forwarding are
+//! deliberately absent from this contract.
+use crate::{ProtocolError, Result, state::SharedState};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub const MAX_RESOURCE_BYTES: usize = 64 * 1024;
+/// A resource response body. A participants page of 500 with 128-byte user ids
+/// stays under it.
+pub const MAX_RESOURCE_BYTES: usize = 128 * 1024;
 pub const MAX_RESOURCE_CALLS: usize = 8;
+/// Participants per page of `im.conversation.participants.read` (`limit`).
+pub const MAX_PARTICIPANTS_PAGE: u32 = 500;
+/// User ids per `im.conversation.members.check` request.
+pub const MAX_MEMBERS_CHECK_USER_IDS: usize = 50;
+/// A resource request body: an [`ResourceWriteRequest::EntityStatePublish`]
+/// carries up to [`crate::state::MAX_SHARED_STATE_BYTES`] of values.
+pub const MAX_RESOURCE_REQUEST_BYTES: usize = 12 * 1024;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -16,16 +27,30 @@ pub enum HostCapability {
     ConversationRead,
     #[serde(rename = "im.conversation.participants.read")]
     ConversationParticipantsRead,
+    /// Read: which of up to 50 user ids are members of the bound conversation
+    /// ([`ResourceRequest::ConversationMembersCheck`], [`MembersCheckView`]).
+    #[serde(rename = "im.conversation.members.check")]
+    ConversationMembersCheck,
     #[serde(rename = "social.group.member.read")]
     SocialGroupMemberRead,
+    /// Write: publish [`SharedState`] for an entity bound to a message of the
+    /// calling plugin. Requested with [`ResourceWriteRequest`].
+    #[serde(rename = "im.plugin.entity_state.publish")]
+    EntityStatePublish,
 }
 impl HostCapability {
     pub fn id(self) -> &'static str {
         match self {
             Self::ConversationRead => "im.conversation.read",
             Self::ConversationParticipantsRead => "im.conversation.participants.read",
+            Self::ConversationMembersCheck => "im.conversation.members.check",
             Self::SocialGroupMemberRead => "social.group.member.read",
+            Self::EntityStatePublish => "im.plugin.entity_state.publish",
         }
+    }
+    /// Writes take a [`ResourceWriteRequest`]; every other capability is a read.
+    pub fn is_write(self) -> bool {
+        matches!(self, Self::EntityStatePublish)
     }
 }
 
@@ -34,8 +59,17 @@ impl HostCapability {
 pub enum ResourceRequest {
     #[serde(rename = "im.conversation.read")]
     ConversationRead {},
+    /// `limit` is `1..=500`; answered with a [`ParticipantPage`].
     #[serde(rename = "im.conversation.participants.read")]
     ConversationParticipantsRead { cursor: String, limit: u32 },
+    /// `{"capability":"im.conversation.members.check","userIds":[...]}`:
+    /// `1..=50` unique user ids, answered with a [`MembersCheckView`] for the
+    /// conversation bound by the ticket.
+    #[serde(rename = "im.conversation.members.check")]
+    ConversationMembersCheck {
+        #[serde(rename = "userIds")]
+        user_ids: Vec<String>,
+    },
     #[serde(rename = "social.group.member.read")]
     SocialGroupMemberRead {
         #[serde(rename = "userId")]
@@ -49,6 +83,7 @@ impl ResourceRequest {
             Self::ConversationParticipantsRead { .. } => {
                 HostCapability::ConversationParticipantsRead
             }
+            Self::ConversationMembersCheck { .. } => HostCapability::ConversationMembersCheck,
             Self::SocialGroupMemberRead { .. } => HostCapability::SocialGroupMemberRead,
         }
     }
@@ -56,9 +91,20 @@ impl ResourceRequest {
         match self {
             Self::ConversationRead {} => Ok(()),
             Self::ConversationParticipantsRead { cursor, limit }
-                if (1..=100).contains(limit)
+                if (1..=MAX_PARTICIPANTS_PAGE).contains(limit)
                     && cursor.len() <= 128
                     && cursor.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                Ok(())
+            }
+            Self::ConversationMembersCheck { user_ids }
+                if (1..=MAX_MEMBERS_CHECK_USER_IDS).contains(&user_ids.len())
+                    && user_ids.iter().all(|id| valid_resource_id(id))
+                    && user_ids
+                        .iter()
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        == user_ids.len() =>
             {
                 Ok(())
             }
@@ -66,6 +112,51 @@ impl ResourceRequest {
             _ => Err(ProtocolError::Denied("invalid resource request")),
         }
     }
+}
+
+/// The host write request, tagged by `capability` like [`ResourceRequest`]:
+/// `{"capability": "im.plugin.entity_state.publish", "entity", "version", "values"}`.
+///
+/// It is authorized by the delegation ticket of a user or staff call whose
+/// operation declares the capability, or by the plugin runtime credential
+/// ([`crate::invocation::PluginRuntimeClaims`]) when no call is in flight. Core
+/// writes only an entity bound to a message of the same tenant and plugin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "capability", deny_unknown_fields)]
+pub enum ResourceWriteRequest {
+    #[serde(rename = "im.plugin.entity_state.publish")]
+    EntityStatePublish(SharedState),
+}
+impl ResourceWriteRequest {
+    pub fn capability(&self) -> HostCapability {
+        match self {
+            Self::EntityStatePublish(_) => HostCapability::EntityStatePublish,
+        }
+    }
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::EntityStatePublish(state) => state.validate(),
+        }
+    }
+}
+
+/// What Core did with a publish; every outcome is a success for the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EntityStatePublishOutcome {
+    /// Newer than the stored version: stored and fanned out.
+    Published,
+    /// The stored version: nothing changed.
+    Duplicate,
+    /// Older than the stored version: dropped.
+    Stale,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EntityStatePublishView {
+    pub entity: String,
+    pub version: u64,
+    pub outcome: EntityStatePublishOutcome,
 }
 
 pub fn valid_resource_id(value: &str) -> bool {
@@ -97,6 +188,48 @@ pub struct ParticipantPage {
     pub participants: Vec<ParticipantView>,
     pub next_cursor: String,
     pub has_more: bool,
+}
+/// The answer to [`ResourceRequest::ConversationMembersCheck`]:
+/// `{"members":[...],"nonMembers":[...]}`. Every requested id is in exactly
+/// one list, in request order; nothing else is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MembersCheckView {
+    pub members: Vec<String>,
+    pub non_members: Vec<String>,
+}
+impl MembersCheckView {
+    /// Split `requested` (a validated request's `userIds`) by `is_member`,
+    /// keeping request order: how a host builds the answer.
+    pub fn partition(requested: &[String], mut is_member: impl FnMut(&str) -> bool) -> Self {
+        let (members, non_members) = requested.iter().cloned().partition(|id| is_member(id));
+        Self {
+            members,
+            non_members,
+        }
+    }
+    /// Check an answer against the request's `userIds`: both lists together
+    /// hold each requested id exactly once, in request order, and nothing else.
+    pub fn validate_for(&self, requested: &[String]) -> Result<()> {
+        let mut members = self.members.iter().peekable();
+        let mut non_members = self.non_members.iter().peekable();
+        let consistent = requested.iter().all(|id| {
+            if members.peek() == Some(&id) {
+                members.next();
+                true
+            } else if non_members.peek() == Some(&id) {
+                non_members.next();
+                true
+            } else {
+                false
+            }
+        });
+        if consistent && members.next().is_none() && non_members.next().is_none() {
+            Ok(())
+        } else {
+            Err(ProtocolError::Denied("invalid members check answer"))
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

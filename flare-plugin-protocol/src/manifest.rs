@@ -197,6 +197,24 @@ pub struct UiContribution {
     )]
     #[schemars(extend("default" = DEFAULT_UI_ORDER))]
     pub order: i32,
+    /// message-content only: JSON pointer into the card payload whose value
+    /// (string or integer) is the plugin entity id, e.g. `/pollId`. Core binds
+    /// `(tenant, pluginId, entity)` to the message when it is stored, which is
+    /// what lets the plugin publish [`crate::state::SharedState`] for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_path: Option<String>,
+    /// message-content only: whether hosts offer "forward" on this card
+    /// (default false: plugin cards are bound to their conversation).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub forwardable: bool,
+    /// composer-action only: who sees the entry. Presentation only; the
+    /// plugin still authorizes every invocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<crate::ui::UiAudience>,
+    /// message-content and admin-page: the "view all" document and the
+    /// operation that returns its data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<crate::ui::UiDetail>,
 }
 
 fn default_ui_order() -> i32 {
@@ -205,6 +223,19 @@ fn default_ui_order() -> i32 {
 
 fn is_default_ui_order(order: &i32) -> bool {
     *order == DEFAULT_UI_ORDER
+}
+
+impl UiContribution {
+    /// The entity id of a card payload: the string or integer at
+    /// [`Self::entity_path`], when it is a valid entity id.
+    pub fn entity_of(&self, payload: &Value) -> Option<String> {
+        let id = match payload.pointer(self.entity_path.as_deref()?)? {
+            Value::String(id) => id.clone(),
+            Value::Number(n) if n.is_u64() || n.is_i64() => n.to_string(),
+            _ => return None,
+        };
+        crate::state::valid_entity_id(&id).then_some(id)
+    }
 }
 
 /// Whether `value` is a well-formed kit icon name (see [`UI_ICON_PATTERN`]).
@@ -227,6 +258,16 @@ pub enum UiContributionKind {
     ConversationMenu,
     ComposerAction,
     Page,
+    /// Console management page for tenant staff, rendered from the same
+    /// document model. Never part of the client catalog; its operations are
+    /// invoked through Core `dispatch_admin` with a staff ticket.
+    AdminPage,
+}
+impl UiContributionKind {
+    /// Whether the contribution belongs in the catalog served to user clients.
+    pub fn is_client_surface(self) -> bool {
+        !matches!(self, Self::AdminPage)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -477,6 +518,7 @@ impl PluginManifest {
         }
         if let Some(configuration) = &self.configuration_schema {
             schema(configuration, "configurationSchema")?;
+            crate::configuration::validate_client_visible_markers(configuration)?;
         }
         let mut contribution_ids = BTreeSet::new();
         for contribution in &self.client_extensions.contributions {
@@ -502,25 +544,39 @@ impl PluginManifest {
                 "clientExtensions.id",
                 "must belong to plugin",
             )?;
-            for action in &contribution.schema.actions {
-                use crate::ui::UiActionTarget;
-                let declared = match &action.target {
-                    UiActionTarget::Operation { operation } => self.operation(operation).is_some(),
-                    UiActionTarget::Page { page } => self
-                        .client_extensions
-                        .contributions
-                        .iter()
-                        .any(|c| &c.id == page && c.kind == UiContributionKind::Page),
-                    UiActionTarget::Native { capability } => self
-                        .client_extensions
-                        .native_capabilities
-                        .contains(capability),
-                };
-                ensure(
-                    declared,
-                    "clientExtensions.actions",
-                    "target must be declared",
-                )?;
+            self.validate_contribution_surface(contribution)?;
+            let documents = std::iter::once(&contribution.schema)
+                .chain(contribution.detail.as_ref().map(|detail| &detail.document));
+            for document in documents {
+                for action in &document.actions {
+                    use crate::ui::UiActionTarget;
+                    let declared = match &action.target {
+                        UiActionTarget::Operation { operation } => {
+                            self.operation(operation).is_some()
+                        }
+                        UiActionTarget::Page { page } => self
+                            .client_extensions
+                            .contributions
+                            .iter()
+                            .any(|c| &c.id == page && c.kind == UiContributionKind::Page),
+                        UiActionTarget::Native { capability } => self
+                            .client_extensions
+                            .native_capabilities
+                            .contains(capability),
+                    };
+                    ensure(
+                        declared,
+                        "clientExtensions.actions",
+                        "target must be declared",
+                    )?;
+                }
+                for source in document.rows_sources() {
+                    ensure(
+                        self.operation(source).is_some(),
+                        "clientExtensions.blocks.rows.source",
+                        "must be a declared operation",
+                    )?;
+                }
             }
             permission_refs(
                 &contribution.required_permissions,
@@ -554,6 +610,134 @@ impl PluginManifest {
             "too many contributions",
         )?;
         Ok(())
+    }
+
+    /// Contribution-kind rules for the v2 fields: entity binding and forwarding
+    /// on message-content, audience on composer-action, detail on message-content
+    /// and admin-page, rows and staff permission on admin-page.
+    fn validate_contribution_surface(&self, contribution: &UiContribution) -> Result<()> {
+        use crate::ui::UiActionTarget;
+        let kind = contribution.kind;
+        let message_content = kind == UiContributionKind::MessageContent;
+        let admin_page = kind == UiContributionKind::AdminPage;
+        ensure(
+            contribution
+                .entity_path
+                .as_deref()
+                .is_none_or(|path| message_content && crate::ui::valid_path(path)),
+            "clientExtensions.contributions.entityPath",
+            "message-content only, expected payload path",
+        )?;
+        ensure(
+            !contribution.forwardable || message_content,
+            "clientExtensions.contributions.forwardable",
+            "message-content only",
+        )?;
+        if let Some(audience) = &contribution.audience {
+            ensure(
+                kind == UiContributionKind::ComposerAction,
+                "clientExtensions.contributions.audience",
+                "composer-action only",
+            )?;
+            audience.validate()?;
+        }
+        if let Some(detail) = &contribution.detail {
+            ensure(
+                message_content || admin_page,
+                "clientExtensions.contributions.detail",
+                "message-content and admin-page only",
+            )?;
+            detail.validate()?;
+            ensure(
+                self.operation(&detail.operation).is_some(),
+                "clientExtensions.contributions.detail.operation",
+                "must be a declared operation",
+            )?;
+        }
+        let documents = std::iter::once(&contribution.schema)
+            .chain(contribution.detail.as_ref().map(|detail| &detail.document));
+        for (index, document) in documents.enumerate() {
+            let rows = document.rows_sources().count();
+            ensure(
+                rows == 0 || (admin_page && index == 0 && rows == 1),
+                "clientExtensions.blocks.rows",
+                "one rows block, on the admin-page document only",
+            )?;
+        }
+        if admin_page {
+            ensure(
+                crate::invocation::plugin_admin_permission(&self.plugin_id).is_some(),
+                "pluginId",
+                "admin-page requires a plugin id of at most 115 bytes",
+            )?;
+            for document in std::iter::once(&contribution.schema)
+                .chain(contribution.detail.as_ref().map(|detail| &detail.document))
+            {
+                ensure(
+                    document
+                        .actions
+                        .iter()
+                        .all(|a| matches!(a.target, UiActionTarget::Operation { .. })),
+                    "clientExtensions.actions",
+                    "admin-page actions target operations only",
+                )?;
+                ensure(
+                    document
+                        .inputs
+                        .iter()
+                        .all(|input| input.id != crate::ui::ROWS_CURSOR_INPUT),
+                    "clientExtensions.inputs",
+                    "admin-page input id `cursor` is reserved",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn contribution(&self, id: &str) -> Option<&UiContribution> {
+        self.client_extensions
+            .contributions
+            .iter()
+            .find(|c| c.id == id)
+    }
+
+    /// Wire operations staff may invoke through `dispatch_admin`: the targets,
+    /// rows sources and detail operations of the admin-page contributions.
+    pub fn admin_operations(&self) -> BTreeSet<String> {
+        use crate::ui::UiActionTarget;
+        let mut operations = BTreeSet::new();
+        for contribution in &self.client_extensions.contributions {
+            if contribution.kind != UiContributionKind::AdminPage {
+                continue;
+            }
+            if let Some(detail) = &contribution.detail {
+                operations.insert(detail.operation.clone());
+            }
+            for document in std::iter::once(&contribution.schema)
+                .chain(contribution.detail.as_ref().map(|detail| &detail.document))
+            {
+                operations.extend(document.rows_sources().map(str::to_owned));
+                operations.extend(document.actions.iter().filter_map(|a| match &a.target {
+                    UiActionTarget::Operation { operation } => Some(operation.clone()),
+                    _ => None,
+                }));
+            }
+        }
+        operations
+    }
+
+    /// The subset of a tenant configuration that clients receive with the
+    /// catalog: the top-level properties marked `x-flare-client-visible: true`.
+    pub fn client_visible_configuration(
+        &self,
+        configuration: &Value,
+    ) -> Result<serde_json::Map<String, Value>> {
+        match &self.configuration_schema {
+            Some(schema) => {
+                crate::configuration::client_visible_configuration(schema, configuration)
+            }
+            None => Ok(Default::default()),
+        }
     }
 
     pub fn operation(&self, wire_id: &str) -> Option<&PluginOperation> {

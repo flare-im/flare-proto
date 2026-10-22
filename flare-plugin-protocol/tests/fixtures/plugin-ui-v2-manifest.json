@@ -1,0 +1,267 @@
+{
+  "apiVersion": "1.0",
+  "artifact": {
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "signatureRef": "REPLACE_WITH_RELEASE_SIGNATURE_REFERENCE"
+  },
+  "capabilities": [
+    {
+      "id": "example.poll",
+      "operations": [
+        {
+          "id": "create",
+          "idempotent": true,
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "permissionIds": ["example.poll.read"],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "vote",
+          "idempotent": true,
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "permissionIds": ["example.poll.read", "example.poll.publish"],
+          "hostCapabilities": ["im.plugin.entity_state.publish"],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "close",
+          "idempotent": true,
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "permissionIds": ["example.poll.read", "example.poll.publish"],
+          "hostCapabilities": ["im.plugin.entity_state.publish"],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "details",
+          "idempotent": true,
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "permissionIds": ["example.poll.read"],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "list",
+          "idempotent": true,
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "permissionIds": ["example.poll.admin"],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "remove",
+          "idempotent": true,
+          "inputSchema": { "type": "object" },
+          "outputSchema": { "type": "object" },
+          "permissionIds": ["example.poll.admin"],
+          "timeoutMs": 10000
+        }
+      ]
+    }
+  ],
+  "clientExtensions": {
+    "contributions": [
+      {
+        "id": "example.poll.card",
+        "kind": "message-content",
+        "entityPath": "/pollId",
+        "requiredPermissions": ["example.poll.read"],
+        "schemaVersion": 1,
+        "detail": {
+          "operation": "example.poll.details",
+          "input": { "pollId": "/pollId" },
+          "document": {
+            "title": "投票详情",
+            "blocks": [
+              { "kind": "entries", "itemsPath": "/voters", "textPath": "/option", "userPath": "/userId", "limit": 50, "emptyText": "还没有人投票" }
+            ],
+            "translations": {
+              "en-US": { "title": "Poll details", "fields": [], "actions": {}, "texts": { "还没有人投票": "No votes yet" } }
+            }
+          }
+        },
+        "schema": {
+          "title": "投票",
+          "blocks": [
+            { "kind": "text", "path": "/question", "style": "title", "maxLines": 3 },
+            {
+              "kind": "choices",
+              "optionsPath": "/options",
+              "countsPath": "/counts",
+              "selectedPath": "/mySelection",
+              "totalPath": "/voterCount",
+              "multiplePath": "/multiple",
+              "closedWhen": [{ "path": "/closed", "anyOf": ["true"] }],
+              "action": "vote"
+            },
+            { "kind": "time", "label": "截止", "path": "/deadlineMs", "countdown": true },
+            {
+              "kind": "status",
+              "path": "/closed",
+              "values": { "true": { "label": "已结束", "tone": "neutral" }, "false": { "label": "进行中", "tone": "success" } }
+            },
+            { "kind": "note", "text": "匿名投票" }
+          ],
+          "actions": [
+            {
+              "id": "vote",
+              "label": "投票",
+              "style": "primary",
+              "target": { "kind": "operation", "operation": "example.poll.vote" },
+              "input": { "pollId": "/pollId" }
+            },
+            {
+              "id": "close",
+              "label": "结束投票",
+              "style": "danger",
+              "confirm": "结束后不能再投票",
+              "target": { "kind": "operation", "operation": "example.poll.close" },
+              "input": { "pollId": "/pollId" },
+              "hiddenWhen": [
+                { "path": "/creatorId", "viewer": true, "negate": true },
+                { "path": "/closed", "anyOf": ["true"] }
+              ]
+            }
+          ],
+          "translations": {
+            "en-US": {
+              "title": "Poll",
+              "fields": [],
+              "actions": { "vote": "Vote", "close": "Close poll" },
+              "texts": {
+                "截止": "Ends",
+                "已结束": "Closed",
+                "进行中": "Open",
+                "匿名投票": "Anonymous poll",
+                "结束后不能再投票": "No one can vote after the poll is closed"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "example.poll.create",
+        "kind": "composer-action",
+        "icon": "poll",
+        "order": 110,
+        "audience": { "conversationTypes": ["group"] },
+        "requiredPermissions": ["example.poll.read"],
+        "schemaVersion": 1,
+        "schema": {
+          "title": "投票",
+          "inputs": [
+            { "id": "question", "kind": "text", "label": "问题", "required": true, "maxLength": 200 },
+            { "id": "options", "kind": "options", "label": "选项", "required": true, "min": 2, "max": 20, "default": ["", ""] },
+            { "id": "multiple", "kind": "toggle", "label": "多选", "default": false },
+            { "id": "deadlineMs", "kind": "datetime", "label": "截止时间" }
+          ],
+          "actions": [
+            {
+              "id": "create",
+              "label": "发起投票",
+              "style": "primary",
+              "target": { "kind": "operation", "operation": "example.poll.create" },
+              "form": ["question", "options", "multiple", "deadlineMs"]
+            }
+          ],
+          "translations": {
+            "en-US": {
+              "title": "Poll",
+              "fields": [],
+              "actions": { "create": "Create poll" },
+              "texts": { "问题": "Question", "选项": "Options", "多选": "Multiple choice", "截止时间": "Deadline" }
+            }
+          }
+        }
+      },
+      {
+        "id": "example.poll.admin",
+        "kind": "admin-page",
+        "requiredPermissions": ["example.poll.admin"],
+        "schemaVersion": 1,
+        "detail": {
+          "operation": "example.poll.details",
+          "input": { "pollId": "/pollId" },
+          "document": {
+            "title": "投票详情",
+            "blocks": [{ "kind": "entries", "itemsPath": "/voters", "textPath": "/option", "userPath": "/userId" }]
+          }
+        },
+        "schema": {
+          "title": "投票管理",
+          "inputs": [
+            {
+              "id": "status",
+              "kind": "select",
+              "label": "状态",
+              "choices": [{ "value": "open", "label": "进行中" }, { "value": "closed", "label": "已结束" }]
+            }
+          ],
+          "blocks": [
+            {
+              "kind": "rows",
+              "source": "example.poll.list",
+              "path": "/items",
+              "keyPath": "/pollId",
+              "cursorPath": "/nextCursor",
+              "columns": [
+                { "label": "问题", "path": "/question" },
+                { "label": "状态", "path": "/status", "values": { "open": "进行中", "closed": "已结束" } },
+                { "label": "创建时间", "path": "/createdAtMs", "format": "time" }
+              ],
+              "actions": ["close", "remove"],
+              "emptyText": "没有投票"
+            }
+          ],
+          "actions": [
+            {
+              "id": "close",
+              "label": "结束",
+              "confirm": "确认结束这个投票？",
+              "target": { "kind": "operation", "operation": "example.poll.close" },
+              "input": { "pollId": "/pollId" },
+              "hiddenWhen": [{ "path": "/status", "anyOf": ["closed"] }]
+            },
+            {
+              "id": "remove",
+              "label": "删除",
+              "style": "danger",
+              "confirm": "删除后不能恢复",
+              "target": { "kind": "operation", "operation": "example.poll.remove" },
+              "input": { "pollId": "/pollId" }
+            }
+          ]
+        }
+      }
+    ],
+    "nativeCapabilities": [],
+    "platforms": ["web", "tauri", "android", "ios", "flutter", "harmonyos"]
+  },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "maxOptions": { "type": "integer", "minimum": 2, "maximum": 20, "x-flare-client-visible": true },
+      "allowAnonymous": { "type": "boolean", "x-flare-client-visible": true },
+      "webhookSecret": { "type": "string" }
+    }
+  },
+  "dataPolicy": {
+    "migrationPolicy": "versioned",
+    "tenantIsolation": "required",
+    "uninstallBehavior": "export-then-retain"
+  },
+  "description": "Protocol-only UI v2 acceptance fixture",
+  "displayName": "Example Poll",
+  "manifestVersion": 1,
+  "permissions": [
+    { "dataScopes": ["poll.participant"], "description": "Read or answer the example poll", "id": "example.poll.read", "riskLevel": "high" },
+    { "dataScopes": ["im.plugin.entity_state.publish"], "description": "Publish poll results to the conversation", "id": "example.poll.publish", "riskLevel": "medium" },
+    { "dataScopes": ["poll.admin"], "description": "Manage polls from the console", "id": "example.poll.admin", "riskLevel": "high" }
+  ],
+  "pluginId": "example.poll",
+  "publisher": { "displayName": "Flare", "publisherId": "flare" },
+  "runtime": { "kind": "grpc", "protocol": "flare.capability.v1", "service": "flare.capability.v1.ExtensionPlugin" },
+  "version": "0.2.0"
+}

@@ -3,6 +3,7 @@
 
 pub mod authorization;
 pub mod command;
+pub mod configuration;
 pub mod data;
 pub mod invocation;
 pub mod lifecycle;
@@ -12,6 +13,7 @@ pub mod registry;
 pub mod resource;
 pub mod runtime;
 pub mod signature;
+pub mod state;
 pub mod ui;
 pub mod workload;
 

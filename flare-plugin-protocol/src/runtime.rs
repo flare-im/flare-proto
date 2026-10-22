@@ -108,6 +108,13 @@ pub struct ProjectedPlugin {
     pub manifest_json: String,
     pub deployment: PluginDeployment,
     pub configuration_digest: String,
+    /// The client-visible subset of the tenant configuration whose digest is
+    /// `configuration_digest`: its top-level properties the manifest's
+    /// `configurationSchema` marks `x-flare-client-visible` (see
+    /// [`PluginManifest::client_visible_configuration`]). Hosts send it with the
+    /// client catalog and still keep only the keys the manifest marks visible.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub client_configuration: serde_json::Map<String, serde_json::Value>,
 }
 impl ProjectedPlugin {
     pub fn manifest(&self) -> Result<PluginManifest> {

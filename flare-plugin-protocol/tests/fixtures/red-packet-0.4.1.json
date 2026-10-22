@@ -1,0 +1,1402 @@
+{
+  "apiVersion": "1.0",
+  "artifact": {
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "signatureRef": "REPLACE_WITH_RELEASE_SIGNATURE_REFERENCE"
+  },
+  "capabilities": [
+    {
+      "id": "flare.redpacket",
+      "operations": [
+        {
+          "hostCapabilities": [
+            "im.conversation.read",
+            "im.conversation.participants.read",
+            "social.group.member.read"
+          ],
+          "id": "create",
+          "idempotent": true,
+          "inputSchema": {
+            "$defs": {
+              "MinorAmount": {
+                "type": "string"
+              },
+              "PacketKind": {
+                "oneOf": [
+                  {
+                    "const": "normal",
+                    "description": "Equal shares. In a single chat the only kind, with one share for the peer.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lucky",
+                    "description": "Random shares of a total, split once at creation.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "exclusive",
+                    "description": "One share reserved for a designated group member.",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "properties": {
+              "amountMinor": {
+                "$ref": "#/$defs/MinorAmount",
+                "description": "`lucky`: the total split randomly. `normal`: each share, so the total is\n`amountMinor x shareCount`. `exclusive`: the single share."
+              },
+              "commandId": {
+                "description": "Persist before submit; reuse after timeout. Reusing with other input fails.",
+                "type": "string"
+              },
+              "conversationId": {
+                "description": "Must equal the conversation the invocation is bound to. The plugin reads\nits type, size and members from the host; the client never lists members.",
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "designatedUserId": {
+                "description": "`exclusive` only: a current group member other than the sender. Omit it\notherwise; a single chat's peer is derived by the plugin.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "greeting": {
+                "description": "Up to 64 characters. Blank uses the default greeting.",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/PacketKind"
+              },
+              "lifetimeSeconds": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "shareCount": {
+                "description": "Single chat and `exclusive`: 1. Group: at most the current member count.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "commandId",
+              "conversationId",
+              "kind",
+              "shareCount",
+              "amountMinor",
+              "currency",
+              "greeting",
+              "lifetimeSeconds"
+            ],
+            "title": "CreatePacket",
+            "type": "object"
+          },
+          "outputSchema": {
+            "$defs": {
+              "MinorAmount": {
+                "type": "string"
+              },
+              "PacketKind": {
+                "oneOf": [
+                  {
+                    "const": "normal",
+                    "description": "Equal shares. In a single chat the only kind, with one share for the peer.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lucky",
+                    "description": "Random shares of a total, split once at creation.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "exclusive",
+                    "description": "One share reserved for a designated group member.",
+                    "type": "string"
+                  }
+                ]
+              },
+              "PacketStatus": {
+                "enum": [
+                  "open",
+                  "completed",
+                  "refunded"
+                ],
+                "type": "string"
+              }
+            },
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "description": "One packet as seen by the current viewer.",
+            "properties": {
+              "canClaim": {
+                "description": "Whether a claim by the viewer would currently be admitted. Presentation\nonly; the plugin re-checks membership and shares on every claim.",
+                "type": "boolean"
+              },
+              "claimedCount": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "claimedMinor": {
+                "$ref": "#/$defs/MinorAmount"
+              },
+              "completedAtMs": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "conversationId": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "designatedUserId": {
+                "description": "The reserved recipient of a single-chat or `exclusive` packet.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAtMs": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "greeting": {
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/PacketKind"
+              },
+              "myAmountMinor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the viewer received, once claimed."
+              },
+              "packetId": {
+                "type": "string"
+              },
+              "senderId": {
+                "type": "string"
+              },
+              "shareCount": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "$ref": "#/$defs/PacketStatus",
+                "description": "An `open` packet past `expiresAtMs` is refunded by the plugin shortly."
+              },
+              "totalMinor": {
+                "$ref": "#/$defs/MinorAmount"
+              },
+              "version": {
+                "description": "Increases on every claim and on refund.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "packetId",
+              "conversationId",
+              "senderId",
+              "kind",
+              "currency",
+              "greeting",
+              "totalMinor",
+              "shareCount",
+              "claimedCount",
+              "claimedMinor",
+              "status",
+              "expiresAtMs",
+              "version",
+              "canClaim"
+            ],
+            "title": "PacketView",
+            "type": "object"
+          },
+          "permissionIds": [
+            "flare.redpacket.send"
+          ],
+          "timeoutMs": 10000
+        },
+        {
+          "hostCapabilities": [
+            "im.conversation.read",
+            "im.conversation.participants.read",
+            "social.group.member.read"
+          ],
+          "id": "claim",
+          "idempotent": true,
+          "inputSchema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "properties": {
+              "packetId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "packetId"
+            ],
+            "title": "PacketRequest",
+            "type": "object"
+          },
+          "outputSchema": {
+            "$defs": {
+              "MessageState": {
+                "additionalProperties": false,
+                "description": "Display state written onto the card message by the client SDK. Shallow\nmerge into the payload; `null` removes a key. Never an authorization.",
+                "properties": {
+                  "values": {
+                    "$ref": "#/$defs/MessageStateValues"
+                  },
+                  "version": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "version",
+                  "values"
+                ],
+                "type": "object"
+              },
+              "MessageStateValues": {
+                "additionalProperties": false,
+                "properties": {
+                  "canClaim": {
+                    "type": "boolean"
+                  },
+                  "claimedCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "myAmountMinor": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/MinorAmount"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shareCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "status": {
+                    "$ref": "#/$defs/PacketStatus"
+                  }
+                },
+                "required": [
+                  "status",
+                  "claimedCount",
+                  "shareCount",
+                  "canClaim"
+                ],
+                "type": "object"
+              },
+              "MinorAmount": {
+                "type": "string"
+              },
+              "PacketClaim": {
+                "additionalProperties": false,
+                "properties": {
+                  "amountMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "best": {
+                    "description": "The largest share of a fully claimed `lucky` packet, earliest on a tie.",
+                    "type": "boolean"
+                  },
+                  "claimedAtMs": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "userId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "userId",
+                  "amountMinor",
+                  "claimedAtMs",
+                  "best"
+                ],
+                "type": "object"
+              },
+              "PacketKind": {
+                "oneOf": [
+                  {
+                    "const": "normal",
+                    "description": "Equal shares. In a single chat the only kind, with one share for the peer.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lucky",
+                    "description": "Random shares of a total, split once at creation.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "exclusive",
+                    "description": "One share reserved for a designated group member.",
+                    "type": "string"
+                  }
+                ]
+              },
+              "PacketStatus": {
+                "enum": [
+                  "open",
+                  "completed",
+                  "refunded"
+                ],
+                "type": "string"
+              },
+              "PacketView": {
+                "additionalProperties": false,
+                "description": "One packet as seen by the current viewer.",
+                "properties": {
+                  "canClaim": {
+                    "description": "Whether a claim by the viewer would currently be admitted. Presentation\nonly; the plugin re-checks membership and shares on every claim.",
+                    "type": "boolean"
+                  },
+                  "claimedCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "claimedMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "completedAtMs": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "conversationId": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "designatedUserId": {
+                    "description": "The reserved recipient of a single-chat or `exclusive` packet.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expiresAtMs": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "greeting": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "$ref": "#/$defs/PacketKind"
+                  },
+                  "myAmountMinor": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/MinorAmount"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "What the viewer received, once claimed."
+                  },
+                  "packetId": {
+                    "type": "string"
+                  },
+                  "senderId": {
+                    "type": "string"
+                  },
+                  "shareCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "status": {
+                    "$ref": "#/$defs/PacketStatus",
+                    "description": "An `open` packet past `expiresAtMs` is refunded by the plugin shortly."
+                  },
+                  "totalMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "version": {
+                    "description": "Increases on every claim and on refund.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "packetId",
+                  "conversationId",
+                  "senderId",
+                  "kind",
+                  "currency",
+                  "greeting",
+                  "totalMinor",
+                  "shareCount",
+                  "claimedCount",
+                  "claimedMinor",
+                  "status",
+                  "expiresAtMs",
+                  "version",
+                  "canClaim"
+                ],
+                "type": "object"
+              }
+            },
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "description": "Result of both `claim` and `details`.",
+            "properties": {
+              "claims": {
+                "description": "At most 100 claims, in claim order.",
+                "items": {
+                  "$ref": "#/$defs/PacketClaim"
+                },
+                "type": "array"
+              },
+              "messageState": {
+                "$ref": "#/$defs/MessageState"
+              },
+              "packet": {
+                "$ref": "#/$defs/PacketView"
+              }
+            },
+            "required": [
+              "packet",
+              "claims",
+              "messageState"
+            ],
+            "title": "PacketDetails",
+            "type": "object"
+          },
+          "permissionIds": [
+            "flare.redpacket.receive"
+          ],
+          "timeoutMs": 10000
+        },
+        {
+          "hostCapabilities": [
+            "im.conversation.read"
+          ],
+          "id": "details",
+          "idempotent": true,
+          "inputSchema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "properties": {
+              "packetId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "packetId"
+            ],
+            "title": "PacketRequest",
+            "type": "object"
+          },
+          "outputSchema": {
+            "$defs": {
+              "MessageState": {
+                "additionalProperties": false,
+                "description": "Display state written onto the card message by the client SDK. Shallow\nmerge into the payload; `null` removes a key. Never an authorization.",
+                "properties": {
+                  "values": {
+                    "$ref": "#/$defs/MessageStateValues"
+                  },
+                  "version": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "version",
+                  "values"
+                ],
+                "type": "object"
+              },
+              "MessageStateValues": {
+                "additionalProperties": false,
+                "properties": {
+                  "canClaim": {
+                    "type": "boolean"
+                  },
+                  "claimedCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "myAmountMinor": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/MinorAmount"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shareCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "status": {
+                    "$ref": "#/$defs/PacketStatus"
+                  }
+                },
+                "required": [
+                  "status",
+                  "claimedCount",
+                  "shareCount",
+                  "canClaim"
+                ],
+                "type": "object"
+              },
+              "MinorAmount": {
+                "type": "string"
+              },
+              "PacketClaim": {
+                "additionalProperties": false,
+                "properties": {
+                  "amountMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "best": {
+                    "description": "The largest share of a fully claimed `lucky` packet, earliest on a tie.",
+                    "type": "boolean"
+                  },
+                  "claimedAtMs": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "userId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "userId",
+                  "amountMinor",
+                  "claimedAtMs",
+                  "best"
+                ],
+                "type": "object"
+              },
+              "PacketKind": {
+                "oneOf": [
+                  {
+                    "const": "normal",
+                    "description": "Equal shares. In a single chat the only kind, with one share for the peer.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lucky",
+                    "description": "Random shares of a total, split once at creation.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "exclusive",
+                    "description": "One share reserved for a designated group member.",
+                    "type": "string"
+                  }
+                ]
+              },
+              "PacketStatus": {
+                "enum": [
+                  "open",
+                  "completed",
+                  "refunded"
+                ],
+                "type": "string"
+              },
+              "PacketView": {
+                "additionalProperties": false,
+                "description": "One packet as seen by the current viewer.",
+                "properties": {
+                  "canClaim": {
+                    "description": "Whether a claim by the viewer would currently be admitted. Presentation\nonly; the plugin re-checks membership and shares on every claim.",
+                    "type": "boolean"
+                  },
+                  "claimedCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "claimedMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "completedAtMs": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "conversationId": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "designatedUserId": {
+                    "description": "The reserved recipient of a single-chat or `exclusive` packet.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expiresAtMs": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "greeting": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "$ref": "#/$defs/PacketKind"
+                  },
+                  "myAmountMinor": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/MinorAmount"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "What the viewer received, once claimed."
+                  },
+                  "packetId": {
+                    "type": "string"
+                  },
+                  "senderId": {
+                    "type": "string"
+                  },
+                  "shareCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "status": {
+                    "$ref": "#/$defs/PacketStatus",
+                    "description": "An `open` packet past `expiresAtMs` is refunded by the plugin shortly."
+                  },
+                  "totalMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "version": {
+                    "description": "Increases on every claim and on refund.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "packetId",
+                  "conversationId",
+                  "senderId",
+                  "kind",
+                  "currency",
+                  "greeting",
+                  "totalMinor",
+                  "shareCount",
+                  "claimedCount",
+                  "claimedMinor",
+                  "status",
+                  "expiresAtMs",
+                  "version",
+                  "canClaim"
+                ],
+                "type": "object"
+              }
+            },
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "description": "Result of both `claim` and `details`.",
+            "properties": {
+              "claims": {
+                "description": "At most 100 claims, in claim order.",
+                "items": {
+                  "$ref": "#/$defs/PacketClaim"
+                },
+                "type": "array"
+              },
+              "messageState": {
+                "$ref": "#/$defs/MessageState"
+              },
+              "packet": {
+                "$ref": "#/$defs/PacketView"
+              }
+            },
+            "required": [
+              "packet",
+              "claims",
+              "messageState"
+            ],
+            "title": "PacketDetails",
+            "type": "object"
+          },
+          "permissionIds": [
+            "flare.redpacket.read"
+          ],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "wallet",
+          "idempotent": true,
+          "inputSchema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "properties": {
+              "currency": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "currency"
+            ],
+            "title": "WalletRequest",
+            "type": "object"
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "permissionIds": [
+            "flare.redpacket.read"
+          ],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "history",
+          "idempotent": true,
+          "inputSchema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "properties": {
+              "beforeId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "limit": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "limit"
+            ],
+            "title": "HistoryRequest",
+            "type": "object"
+          },
+          "outputSchema": {
+            "type": "array"
+          },
+          "permissionIds": [
+            "flare.redpacket.read"
+          ],
+          "timeoutMs": 10000
+        },
+        {
+          "id": "reconcile",
+          "idempotent": true,
+          "inputSchema": {
+            "$defs": {
+              "MinorAmount": {
+                "type": "string"
+              },
+              "PacketKind": {
+                "oneOf": [
+                  {
+                    "const": "normal",
+                    "description": "Equal shares. In a single chat the only kind, with one share for the peer.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lucky",
+                    "description": "Random shares of a total, split once at creation.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "exclusive",
+                    "description": "One share reserved for a designated group member.",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "properties": {
+              "amountMinor": {
+                "$ref": "#/$defs/MinorAmount",
+                "description": "`lucky`: the total split randomly. `normal`: each share, so the total is\n`amountMinor x shareCount`. `exclusive`: the single share."
+              },
+              "commandId": {
+                "description": "Persist before submit; reuse after timeout. Reusing with other input fails.",
+                "type": "string"
+              },
+              "conversationId": {
+                "description": "Must equal the conversation the invocation is bound to. The plugin reads\nits type, size and members from the host; the client never lists members.",
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "designatedUserId": {
+                "description": "`exclusive` only: a current group member other than the sender. Omit it\notherwise; a single chat's peer is derived by the plugin.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "greeting": {
+                "description": "Up to 64 characters. Blank uses the default greeting.",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/PacketKind"
+              },
+              "lifetimeSeconds": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "shareCount": {
+                "description": "Single chat and `exclusive`: 1. Group: at most the current member count.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "commandId",
+              "conversationId",
+              "kind",
+              "shareCount",
+              "amountMinor",
+              "currency",
+              "greeting",
+              "lifetimeSeconds"
+            ],
+            "title": "CreatePacket",
+            "type": "object"
+          },
+          "outputSchema": {
+            "$defs": {
+              "CommandOutcome": {
+                "enum": [
+                  "committed",
+                  "notFound"
+                ],
+                "type": "string"
+              },
+              "MinorAmount": {
+                "type": "string"
+              },
+              "PacketKind": {
+                "oneOf": [
+                  {
+                    "const": "normal",
+                    "description": "Equal shares. In a single chat the only kind, with one share for the peer.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "lucky",
+                    "description": "Random shares of a total, split once at creation.",
+                    "type": "string"
+                  },
+                  {
+                    "const": "exclusive",
+                    "description": "One share reserved for a designated group member.",
+                    "type": "string"
+                  }
+                ]
+              },
+              "PacketStatus": {
+                "enum": [
+                  "open",
+                  "completed",
+                  "refunded"
+                ],
+                "type": "string"
+              },
+              "PacketView": {
+                "additionalProperties": false,
+                "description": "One packet as seen by the current viewer.",
+                "properties": {
+                  "canClaim": {
+                    "description": "Whether a claim by the viewer would currently be admitted. Presentation\nonly; the plugin re-checks membership and shares on every claim.",
+                    "type": "boolean"
+                  },
+                  "claimedCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "claimedMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "completedAtMs": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "conversationId": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "designatedUserId": {
+                    "description": "The reserved recipient of a single-chat or `exclusive` packet.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expiresAtMs": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "greeting": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "$ref": "#/$defs/PacketKind"
+                  },
+                  "myAmountMinor": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/MinorAmount"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "What the viewer received, once claimed."
+                  },
+                  "packetId": {
+                    "type": "string"
+                  },
+                  "senderId": {
+                    "type": "string"
+                  },
+                  "shareCount": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "status": {
+                    "$ref": "#/$defs/PacketStatus",
+                    "description": "An `open` packet past `expiresAtMs` is refunded by the plugin shortly."
+                  },
+                  "totalMinor": {
+                    "$ref": "#/$defs/MinorAmount"
+                  },
+                  "version": {
+                    "description": "Increases on every claim and on refund.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "packetId",
+                  "conversationId",
+                  "senderId",
+                  "kind",
+                  "currency",
+                  "greeting",
+                  "totalMinor",
+                  "shareCount",
+                  "claimedCount",
+                  "claimedMinor",
+                  "status",
+                  "expiresAtMs",
+                  "version",
+                  "canClaim"
+                ],
+                "type": "object"
+              }
+            },
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "description": "The query receives the original payload. The plugin verifies its business\nidempotency key and returns its original operation plus a canonical digest of\nthat exact payload. NotFound is a snapshot, never permission to replace intent.",
+            "properties": {
+              "capabilityId": {
+                "type": "string"
+              },
+              "commandId": {
+                "type": "string"
+              },
+              "outcome": {
+                "$ref": "#/$defs/CommandOutcome"
+              },
+              "requestDigest": {
+                "type": "string"
+              },
+              "result": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PacketView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "commandId",
+              "capabilityId",
+              "requestDigest",
+              "outcome"
+            ],
+            "title": "CommandObservation",
+            "type": "object"
+          },
+          "permissionIds": [
+            "flare.redpacket.read"
+          ],
+          "timeoutMs": 10000
+        }
+      ]
+    }
+  ],
+  "clientExtensions": {
+    "contributions": [
+      {
+        "id": "flare.redpacket.card",
+        "kind": "message-content",
+        "requiredPermissions": [
+          "flare.redpacket.read"
+        ],
+        "schema": {
+          "actions": [
+            {
+              "id": "details",
+              "input": {
+                "packetId": "/packetId"
+              },
+              "label": "查看红包",
+              "target": {
+                "kind": "operation",
+                "operation": "flare.redpacket.details"
+              }
+            },
+            {
+              "hiddenWhen": [
+                {
+                  "anyOf": [
+                    "completed",
+                    "refunded"
+                  ],
+                  "path": "/status"
+                },
+                {
+                  "negate": true,
+                  "path": "/recipients",
+                  "viewer": true
+                },
+                {
+                  "anyOf": [
+                    "false"
+                  ],
+                  "path": "/canClaim"
+                }
+              ],
+              "id": "claim",
+              "input": {
+                "packetId": "/packetId"
+              },
+              "label": "领取红包",
+              "target": {
+                "kind": "operation",
+                "operation": "flare.redpacket.claim"
+              }
+            }
+          ],
+          "fields": [
+            {
+              "label": "祝福",
+              "path": "/greeting"
+            },
+            {
+              "label": "类型",
+              "path": "/kind",
+              "values": {
+                "exclusive": "专属红包",
+                "lucky": "拼手气红包",
+                "normal": "普通红包"
+              }
+            },
+            {
+              "label": "币种",
+              "path": "/currency"
+            },
+            {
+              "label": "状态",
+              "path": "/status",
+              "values": {
+                "completed": "已被领完",
+                "open": "待领取",
+                "refunded": "已过期"
+              }
+            },
+            {
+              "label": "我领取的（最小单位）",
+              "path": "/myAmountMinor"
+            }
+          ],
+          "title": "红包",
+          "translations": {
+            "en-US": {
+              "actions": {
+                "claim": "Claim packet",
+                "details": "View packet"
+              },
+              "fields": [
+                "Greeting",
+                "Type",
+                "Currency",
+                "Status",
+                "My share (minor units)"
+              ],
+              "title": "Red packet",
+              "values": {
+                "/kind": {
+                  "exclusive": "Exclusive",
+                  "lucky": "Lucky draw",
+                  "normal": "Red packet"
+                },
+                "/status": {
+                  "completed": "Fully claimed",
+                  "open": "Open",
+                  "refunded": "Expired"
+                }
+              }
+            }
+          }
+        },
+        "schemaVersion": 1
+      },
+      {
+        "id": "flare.redpacket.wallet",
+        "kind": "page",
+        "requiredPermissions": [
+          "flare.redpacket.read"
+        ],
+        "schema": {
+          "actions": [
+            {
+              "id": "wallet",
+              "input": {
+                "currency": "/currency"
+              },
+              "label": "钱包余额",
+              "target": {
+                "kind": "operation",
+                "operation": "flare.redpacket.wallet"
+              }
+            },
+            {
+              "id": "history",
+              "input": {
+                "limit": "/limit"
+              },
+              "label": "交易记录",
+              "target": {
+                "kind": "operation",
+                "operation": "flare.redpacket.history"
+              }
+            }
+          ],
+          "fields": [],
+          "title": "钱包与红包记录",
+          "translations": {
+            "en-US": {
+              "actions": {
+                "history": "Transactions",
+                "wallet": "Wallet balance"
+              },
+              "fields": [],
+              "title": "Wallet and transactions"
+            }
+          }
+        },
+        "schemaVersion": 1
+      },
+      {
+        "icon": "red-packet",
+        "id": "flare.redpacket.send",
+        "kind": "composer-action",
+        "order": 100,
+        "requiredPermissions": [
+          "flare.redpacket.send"
+        ],
+        "schema": {
+          "actions": [
+            {
+              "id": "create",
+              "input": {},
+              "label": "发送红包",
+              "target": {
+                "kind": "operation",
+                "operation": "flare.redpacket.create"
+              }
+            }
+          ],
+          "fields": [],
+          "title": "红包",
+          "translations": {
+            "en-US": {
+              "actions": {
+                "create": "Send red packet"
+              },
+              "fields": [],
+              "title": "Red packet"
+            }
+          }
+        },
+        "schemaVersion": 1
+      }
+    ],
+    "nativeCapabilities": [],
+    "platforms": [
+      "web",
+      "tauri",
+      "android",
+      "ios",
+      "flutter",
+      "harmonyos"
+    ]
+  },
+  "configurationSchema": {
+    "$defs": {
+      "MinorAmount": {
+        "type": "string"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "currency": {
+        "type": "string"
+      },
+      "maxLifetimeSeconds": {
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxPacketMinor": {
+        "$ref": "#/$defs/MinorAmount"
+      },
+      "maxRecipients": {
+        "description": "Maximum shares per packet (1..=100).",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "currency",
+      "maxPacketMinor",
+      "maxRecipients",
+      "maxLifetimeSeconds"
+    ],
+    "title": "Configuration",
+    "type": "object"
+  },
+  "dataPolicy": {
+    "migrationPolicy": "versioned",
+    "tenantIsolation": "required",
+    "uninstallBehavior": "export-then-retain"
+  },
+  "description": "Normal, lucky and exclusive red packets with independent wallet/escrow/ledger ownership",
+  "displayName": "Flare Red Packet",
+  "manifestVersion": 1,
+  "permissions": [
+    {
+      "dataScopes": [
+        "wallet.own",
+        "packet.participant",
+        "im.conversation.read",
+        "im.conversation.participants.read",
+        "social.group.member.read"
+      ],
+      "description": "Reserve funds for a packet in a conversation the actor belongs to",
+      "id": "flare.redpacket.send",
+      "riskLevel": "critical"
+    },
+    {
+      "dataScopes": [
+        "wallet.own",
+        "packet.participant",
+        "im.conversation.read",
+        "im.conversation.participants.read",
+        "social.group.member.read"
+      ],
+      "description": "Claim a share of a packet in a conversation the actor belongs to",
+      "id": "flare.redpacket.receive",
+      "riskLevel": "critical"
+    },
+    {
+      "dataScopes": [
+        "wallet.own",
+        "packet.participant",
+        "im.conversation.read"
+      ],
+      "description": "Read the actor's wallet and ledger, and packets of the actor's conversations",
+      "id": "flare.redpacket.read",
+      "riskLevel": "high"
+    }
+  ],
+  "pluginId": "flare.redpacket",
+  "publisher": {
+    "displayName": "Flare",
+    "publisherId": "flare"
+  },
+  "runtime": {
+    "kind": "grpc",
+    "protocol": "flare.capability.v1",
+    "service": "flare.capability.v1.ExtensionPlugin"
+  },
+  "version": "0.4.1"
+}

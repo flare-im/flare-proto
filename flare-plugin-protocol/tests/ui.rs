@@ -18,6 +18,7 @@ fn catalog() -> UiCatalog {
                 .iter()
                 .flat_map(|c| c.operations.iter().map(|o| format!("{}.{}", c.id, o.id)))
                 .collect(),
+            configuration: Default::default(),
         }],
     }
 }
@@ -381,8 +382,16 @@ fn message_state_overlays_payload_and_rejects_unbounded_values() {
     };
     assert!(invalid(json!({"nested": {"a": 1}})));
     assert!(invalid(json!({"bad-key": 1})));
-    assert!(invalid(json!({"list": [1, 2]})));
-    assert!(invalid(json!({"text": "x".repeat(257)})));
+    assert!(invalid(json!({"list": [1, "2"]})));
+    assert!(invalid(json!({"list": [true]})));
+    // A string value takes up to 1024 bytes; a string inside an array 256.
+    assert!(invalid(json!({"text": "x".repeat(1025)})));
+    assert!(invalid(json!({"text": "汉".repeat(342)})));
+    assert!(!invalid(json!({"text": "x".repeat(1024)})));
+    assert!(!invalid(json!({"myEntry": "汉".repeat(300)})));
+    assert!(invalid(json!({"list": ["x".repeat(257)]})));
+    assert!(!invalid(json!({"list": ["x".repeat(256)]})));
+    assert!(invalid(json!({"text": "a\u{7}b"})));
     assert!(invalid(serde_json::Value::Object(
         (0..17).map(|i| (format!("k{i}"), json!(i))).collect()
     )));
@@ -396,13 +405,13 @@ fn message_state_overlays_payload_and_rejects_unbounded_values() {
     )));
     let roomy: PluginMessageState = serde_json::from_value(json!({
         "version": u64::MAX,
-        "values": {"recipients": vec!["u"; 100], "ok": true, "n": 1.5}
+        "values": {"recipients": vec!["u"; 100], "ok": true, "n": 1.5, "mySelection": [0, 2]}
     }))
     .unwrap();
     roomy.validate().unwrap();
     assert_eq!(
         roomy.merge_into(&json!(["not", "an", "object"])),
-        json!({"recipients": vec!["u"; 100], "ok": true, "n": 1.5}),
+        json!({"recipients": vec!["u"; 100], "ok": true, "n": 1.5, "mySelection": [0, 2]}),
         "a non-object payload is replaced by the state values"
     );
     assert!(
