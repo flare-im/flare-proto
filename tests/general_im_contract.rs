@@ -7,8 +7,8 @@ use flare_proto::common::{
     CapabilityPacket, ContentVisibility, ConversationsSync, ConversationsSyncRes, DataPacket,
     ErrorCode, ErrorDetail, Event, EventType, Message, MessageContent, MessageRetentionLifecycle,
     MessageRetentionPolicy, MessageRetentionScheduledEvent, MessageRetentionState, MessageType,
-    PushDelivered, PushFailed, PushResult, RetentionMode, RetentionTrigger, SyncSliceItem,
-    TextContent,
+    PluginStateEvent, PushDelivered, PushFailed, PushResult, RetentionMode, RetentionTrigger,
+    SyncSliceItem, TextContent,
 };
 
 #[test]
@@ -79,6 +79,35 @@ fn retention_event_is_generic_and_replayable() {
         event.payload,
         Some(EventPayload::RetentionScheduled(_))
     ));
+}
+
+#[test]
+fn plugin_state_is_a_durable_message_event() {
+    use prost::Message as _;
+    let event = Event {
+        conversation_id: "group:g1".to_string(),
+        conversation_seq: 88,
+        r#type: EventType::EventMessagePluginState as i32,
+        payload: Some(EventPayload::PluginState(PluginStateEvent {
+            server_msg_id: "msg-9".to_string(),
+            plugin_id: "flare.poll".to_string(),
+            entity: "poll-1".to_string(),
+            version: 4,
+            values_json: r#"{"counts":[2,1],"voterCount":3}"#.to_string(),
+        })),
+        ..Default::default()
+    };
+    assert_eq!(EventType::EventMessagePluginState as i32, 17);
+    assert_eq!(
+        EventType::from_str_name("EVENT_MESSAGE_PLUGIN_STATE"),
+        Some(EventType::EventMessagePluginState)
+    );
+    let decoded = Event::decode(event.encode_to_vec().as_slice()).unwrap();
+    assert_eq!(decoded, event);
+    let Some(EventPayload::PluginState(state)) = decoded.payload else {
+        panic!("plugin state payload expected");
+    };
+    assert_eq!((state.entity.as_str(), state.version), ("poll-1", 4));
 }
 
 #[test]

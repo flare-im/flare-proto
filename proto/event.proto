@@ -52,6 +52,7 @@ enum EventType {
   EVENT_MESSAGE_RETENTION_EXPIRED = 14;  // retention 已过期，内容进入目标可见性
   EVENT_MESSAGE_RETENTION_PURGED = 15;  // retention 已完成物理/逻辑清理
   EVENT_CUSTOM = 16; // 自定义事件
+  EVENT_MESSAGE_PLUGIN_STATE = 17;  // 插件实体共享状态（PluginStateEvent）
 }
 
 /// 领域事件：上行/下行共用；operator_id/request_id 由连接或 metadata 注入。
@@ -76,6 +77,7 @@ message Event {
     UnpinEvent unpin = 22;
     MarkEvent mark = 23;
     UnmarkEvent unmark = 24;
+    PluginStateEvent plugin_state = 25;
     MessageRetentionScheduledEvent retention_scheduled = 30;
     MessageRetentionExpiredEvent retention_expired = 31;
     MessageRetentionPurgedEvent retention_purged = 32;
@@ -201,4 +203,17 @@ message UnmarkEvent {
   string server_msg_id = 1;  // 被取消标记的消息服务端 ID
   string user_id = 2;  // 操作用户（与 MarkEvent 一致才能取消）
   MarkType mark_type = 3;  // 要取消的标记类型
+}
+
+/// 插件实体共享状态事件（EVENT_MESSAGE_PLUGIN_STATE）：插件为一个实体（一次投票、一个接龙）
+/// 发布的最新共享状态。Core 只在实体已绑定到该插件的卡片消息、插件仍启用时生成本事件，
+/// 分配 conversation_seq 后随事件流扩散，并随离线同步下发；同一实体的多次发布可合并为最高版本。
+/// values_json 是完整快照而不是增量：客户端按 version 单调覆盖，旧版本丢弃，同版本幂等；
+/// 本地尚无 server_msg_id 对应的消息时，和表情反应一样等消息到达后重放。
+message PluginStateEvent {
+  string server_msg_id = 1;  // 实体绑定的插件卡片消息服务端 ID
+  string plugin_id = 2;  // 发布状态的插件 ID，与卡片的插件一致
+  string entity = 3;  // 实体 ID：卡片载荷在 message-content 贡献 entityPath 处的值
+  uint64 version = 4;  // 状态版本，按 (租户, plugin_id, entity) 严格递增，1..=i64::MAX
+  string values_json = 5;  // JSON 对象：≤32 键、≤8 KiB，值为标量、字符串数组或数字数组
 }

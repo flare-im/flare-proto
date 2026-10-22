@@ -42,6 +42,7 @@
 - 写侧：Command → 写 Event 到事件流（如 Kafka），并更新写模型（消息表、操作表等）。
 - 读侧：消费事件流更新读模型（会话未读、预览、已读位点等）；Query 只读读模型。
 - Event 类型与 message.proto 操作一一对应：EVENT_MESSAGE_RECALL → MessageRecallEvent，EVENT_READ_RECEIPT → ReadReceiptEvent，等。
+- 插件卡片的共享状态（投票计数、接龙条目等）走 EVENT_MESSAGE_PLUGIN_STATE → PluginStateEvent：Core 校验插件已启用、实体已绑定到该插件的卡片消息后分配 seq；values_json 是完整快照，按 version 单调覆盖，同版本幂等。
 
 ---
 

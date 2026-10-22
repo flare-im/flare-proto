@@ -13,8 +13,12 @@
 - `ConversationParticipant` 增加 `visible_from_seq`（字段号 7）：
   该成员可见的历史下限。负值是「从加入时刻起」的哨兵，由核心解析成当时的 seq。
 
-两处都是**向后兼容的新增**：字段号此前未被占用，老客户端不发送、老服务端忽略。
-因此升 minor 而非 major。
+- `EventType` 增加 `EVENT_MESSAGE_PLUGIN_STATE = 17`，`Event.payload` 增加
+  `PluginStateEvent plugin_state = 25`：插件实体的共享状态快照（`server_msg_id`、
+  `plugin_id`、`entity`、`version`、`values_json`），按版本单调覆盖。
+
+以上都是**向后兼容的新增**：字段号与枚举值此前未被占用，老客户端不发送、老服务端忽略。
+因此升 minor 而非 major。对 `EventType` 或 `event::Payload` 做穷尽匹配的下游代码需要补上新分支。
 
 ## 2.0.1 — 2026-08-03
 

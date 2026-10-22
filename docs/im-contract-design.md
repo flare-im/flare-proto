@@ -88,7 +88,7 @@ Product-specific structures become:
 Owns:
 
 - Ordered domain events that mutate message or conversation read models.
-- Operation events for recall, edit, delete, read receipt, reaction, pin, mark, retention lifecycle, conversation update, and durable custom events.
+- Operation events for recall, edit, delete, read receipt, reaction, pin, mark, retention lifecycle, plugin entity state, conversation update, and durable custom events.
 
 Durable capability facts use `CustomEvent` with a namespaced type only when they intentionally affect replayable state. Live capability signaling such as RTC invite, SDP, ICE, SFU hints, audio level, and network quality does not enter the durable event stream and does not consume conversation sequence.
 
