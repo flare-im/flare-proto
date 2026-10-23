@@ -29,6 +29,7 @@ fn catalog() -> UiCatalog {
             extensions: manifest.client_extensions,
             configuration: Default::default(),
         }],
+        unavailable: vec![],
     }
 }
 fn context<'a>(locale: &'a str, viewer: &'a str) -> UiRenderContext<'a> {
@@ -48,6 +49,7 @@ fn card(payload: Value) -> PluginMessage {
         schema_version: 1,
         summary: "投票".into(),
         payload,
+        display_name: None,
     }
 }
 fn doc(raw: Value) -> UiDocument {
@@ -346,8 +348,10 @@ fn state_layers_merge_payload_then_shared_then_local() {
         values: serde_json::from_value(json!({"a": "shared", "b": "shared", "gone": null}))
             .unwrap(),
     };
-    let local: PluginMessageState =
-        serde_json::from_value(json!({"version": 9, "values": {"b": "local"}})).unwrap();
+    let local: PluginMessageState = serde_json::from_value(
+        json!({"version": 9, "basedOnVersion": 1, "values": {"b": "local"}}),
+    )
+    .unwrap();
     let merged = UiStateLayers {
         shared: Some(&shared),
         local: Some(&local),
@@ -1536,6 +1540,7 @@ fn block_conditions_read_the_merged_card_data() {
     let local = PluginMessageState {
         version: 2,
         values: json!({"mine": [0]}).as_object().unwrap().clone(),
+        based_on_version: None,
     };
     assert_eq!(
         notes(

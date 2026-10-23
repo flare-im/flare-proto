@@ -1,6 +1,7 @@
 //! Shared plugin contracts. No IM/Social business logic, transport, persistence,
 //! process orchestration or commercial authorization lives in this crate.
 
+pub mod admin;
 pub mod authorization;
 pub mod command;
 pub mod configuration;

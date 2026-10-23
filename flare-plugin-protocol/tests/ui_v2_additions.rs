@@ -330,6 +330,7 @@ fn composer_catalog(configuration: Value) -> UiCatalog {
             grant_revision: 1,
             extensions: manifest.client_extensions,
         }],
+        unavailable: vec![],
     }
 }
 fn composer_view(catalog: &UiCatalog, payload: Value) -> ResolvedPluginView {
@@ -340,6 +341,7 @@ fn composer_view(catalog: &UiCatalog, payload: Value) -> ResolvedPluginView {
             schema_version: 1,
             summary: "发起".into(),
             payload,
+            display_name: None,
         },
         UiStateLayers::default(),
         UiRenderContext {
@@ -909,6 +911,7 @@ fn paged_detail_resolves_through_the_catalog_and_pages_admin_rows() {
             extensions: manifest.client_extensions.clone(),
             configuration: Default::default(),
         }],
+        unavailable: vec![],
     };
     let message = PluginMessage {
         plugin_id: "example.poll".into(),
@@ -916,6 +919,7 @@ fn paged_detail_resolves_through_the_catalog_and_pages_admin_rows() {
         schema_version: 1,
         summary: "投票".into(),
         payload: json!({"pollId": "p-1"}),
+        display_name: None,
     };
     let context = UiRenderContext {
         tenant: "201",

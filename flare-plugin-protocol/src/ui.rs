@@ -10,7 +10,12 @@
 //! `userIdsPath`, rows `filters`, input `maxPath` and detail paging
 //! (`cursorPath`). A composer-action document resolves against
 //! [`composer_data`]. Older documents parse, validate and resolve exactly as
-//! before.
+//! before. Plugin platform v2 adds, equally optional: the viewer layer
+//! ([`UiViewerState`], [`PluginMessageState::based_on_version`] and the
+//! versioned merge of [`UiStateLayers`]), grouped entries, menu actions
+//! ([`UiActionPlacement`]), account-entry summaries ([`UiEntrySummary`]),
+//! the envelope's `displayName`, and why a view is inert
+//! ([`UiUnavailableReason`]).
 mod blocks;
 mod inputs;
 pub use blocks::*;
@@ -68,7 +73,11 @@ pub struct UiDocument {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UiTranslation {
     pub title: String,
+    /// One label per document field, in order (empty when the document has
+    /// no fields).
+    #[serde(default)]
     pub fields: Vec<String>,
+    #[serde(default)]
     pub actions: BTreeMap<String, String>,
     /// Display labels for enumerated field values, keyed by field path.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -96,10 +105,18 @@ pub struct UiRenderContext<'a> {
 /// - `shared`: the entity's [`SharedState`] from Core (events and sync). It
 ///   applies only when the payload names the same entity at the
 ///   contribution's `entityPath`.
-/// - `local`: the [`PluginMessageState`] from the viewer's own call results,
-///   kept on this device only (such as `mySelection`). A local key replaces a
-///   shared key of the same name, so plugins keep viewer-specific keys apart
-///   from shared ones.
+/// - `local`: the viewer's own layer ([`PluginMessageState`]), from the
+///   viewer's call results (`data.messageState`) and the contribution's
+///   [`UiViewerState`] reads, kept on this device only (such as
+///   `mySelection`, `canClose`).
+///
+/// The local layer is versioned against the shared one: it was computed from
+/// the shared version [`PluginMessageState::based_on_version`]. While that is
+/// at least the applied shared version the local layer is fresh and each of
+/// its keys replaces the shared key of the same name. Once a newer shared
+/// version arrives it is stale: keys the shared layer also carries keep the
+/// shared value (a stale `counts` never hides the final counts), its other
+/// keys still apply. Without a shared layer every local key applies.
 ///
 /// An invalid layer is ignored.
 #[derive(Debug, Clone, Copy, Default)]
@@ -108,19 +125,222 @@ pub struct UiStateLayers<'a> {
     pub local: Option<&'a PluginMessageState>,
 }
 impl UiStateLayers<'_> {
-    /// The data a card of `contribution` is resolved against.
-    pub fn merge(&self, contribution: &UiContribution, payload: &Value) -> Value {
-        let mut data = payload.clone();
-        if let Some(shared) = self.shared.filter(|shared| {
+    /// The shared layer that applies to a card of `contribution`: valid and of
+    /// the entity the payload names.
+    pub fn applied_shared(
+        &self,
+        contribution: &UiContribution,
+        payload: &Value,
+    ) -> Option<&SharedState> {
+        self.shared.filter(|shared| {
             shared.validate().is_ok()
                 && contribution.entity_of(payload).as_deref() == Some(shared.entity.as_str())
-        }) {
-            data = shared.merge_into(&data);
-        }
+        })
+    }
+    /// The data a card of `contribution` is resolved against.
+    pub fn merge(&self, contribution: &UiContribution, payload: &Value) -> Value {
+        let shared = self.applied_shared(contribution, payload);
+        let mut data = shared.map_or_else(|| payload.clone(), |shared| shared.merge_into(payload));
         if let Some(local) = self.local.filter(|local| local.validate().is_ok()) {
-            data = local.merge_into(&data);
+            data = match shared {
+                Some(shared) if !local.is_fresh_against(shared.version) => {
+                    let values: Map<String, Value> = local
+                        .values
+                        .iter()
+                        .filter(|(key, _)| !shared.values.contains_key(*key))
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect();
+                    crate::state::overlay(&data, &values)
+                }
+                _ => local.merge_into(&data),
+            };
         }
         data
+    }
+    /// [`Self::merge`] without the local layer: the data a
+    /// [`UiViewerState`] input is bound from, so the viewer layer never feeds
+    /// its own request.
+    pub fn merge_shared(&self, contribution: &UiContribution, payload: &Value) -> Value {
+        self.applied_shared(contribution, payload)
+            .map_or_else(|| payload.clone(), |shared| shared.merge_into(payload))
+    }
+}
+
+/// When the core SDK reads a card's [`UiViewerState`].
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum UiViewerRefresh {
+    /// Presenting the card reads it when the viewer layer is missing or stale
+    /// (computed from an older shared version).
+    Present,
+    /// A newer shared version of a card presented recently reads it again,
+    /// without waiting for the host to present the card.
+    SharedVersion,
+}
+/// Smallest and largest [`UiViewerState::min_interval_ms`].
+pub const MIN_VIEWER_STATE_INTERVAL_MS: u32 = 1000;
+pub const MAX_VIEWER_STATE_INTERVAL_MS: u32 = 3_600_000;
+/// The viewer's own layer of a message-content card: what only this viewer
+/// may see or do (`hasVoted`, `canClose`, counts visible to them alone). The
+/// core SDK schedules it; hosts and kits write no call logic.
+///
+/// The SDK calls `operation` (a declared `query`) with `input` bound from the
+/// card payload under its shared layer (never the local layer, so the result
+/// never feeds its own request), when [`refreshOn`](Self::refresh_on) says
+/// so, at most once per `minIntervalMs` per card, one call in flight per
+/// card, with exponential backoff after failures, only for presented cards,
+/// and never across a session change. The result `data` (an object) is
+/// overlaid on the card's local layer (top-level keys, null removes one) and
+/// stored with [`PluginMessageState::based_on_version`] taken from the
+/// result's `basedOnVersion` (a non-negative integer, at most the shared
+/// version seen when the call was made) or else that seen version. A result
+/// may also carry `refreshOn`
+/// to narrow the triggers for that card ([`Self::result_refresh_on`]); the
+/// keys `basedOnVersion` and `refreshOn` are not stored as values.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiViewerState {
+    /// Wire operation declared by the plugin, mode `query`.
+    pub operation: String,
+    /// Input names to JSON pointers into the card data (`0..=32`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub input: BTreeMap<String, String>,
+    /// `1..=2` distinct triggers.
+    pub refresh_on: Vec<UiViewerRefresh>,
+    /// Calls per card at most once per this many milliseconds
+    /// (`1000..=3600000`).
+    pub min_interval_ms: u32,
+}
+impl UiViewerState {
+    pub fn validate(&self) -> Result<()> {
+        let refresh: BTreeSet<_> = self.refresh_on.iter().collect();
+        if self.operation.is_empty()
+            || self.operation.len() > 128
+            || !valid_bindings(&self.input)
+            || self.refresh_on.is_empty()
+            || refresh.len() != self.refresh_on.len()
+            || !(MIN_VIEWER_STATE_INTERVAL_MS..=MAX_VIEWER_STATE_INTERVAL_MS)
+                .contains(&self.min_interval_ms)
+        {
+            return Err(ProtocolError::Denied("invalid UI viewer state"));
+        }
+        Ok(())
+    }
+    pub fn refreshes_on(&self, trigger: UiViewerRefresh) -> bool {
+        self.refresh_on.contains(&trigger)
+    }
+    /// The operation input, bound from `data` ([`UiStateLayers::merge_shared`]).
+    pub fn bind_input(&self, data: &Value) -> Result<Value> {
+        bind_inputs(&self.input, data)
+    }
+    /// Whether a card whose local layer is `local` and whose applied shared
+    /// layer has version `shared_version` (0 when none) needs a read: no
+    /// local layer, or one computed from an older shared version.
+    pub fn needs_read(local: Option<&PluginMessageState>, shared_version: u64) -> bool {
+        local.is_none_or(|local| !local.is_fresh_against(shared_version))
+    }
+    /// The local layer a successful result `data` makes over `previous` (the
+    /// stored layer, if any): its keys overlaid on the previous values,
+    /// `basedOnVersion` from the result when it is a non-negative integer,
+    /// `seen_shared_version` otherwise, and the previous layer's version (0
+    /// when none), so a newer action result is never replaced by it. `None`
+    /// when `data` is not an object or the layer would break the bounds of
+    /// [`PluginMessageState::validate`].
+    ///
+    /// The result's `basedOnVersion` is capped at `seen_shared_version`
+    /// ([`PluginMessageState::capped_at`]): a plugin cannot claim a shared
+    /// version the caller never saw, which would keep its layer fresh against
+    /// every later shared layer and hide the shared value of its keys for good.
+    pub fn local_layer(
+        data: &Value,
+        previous: Option<&PluginMessageState>,
+        seen_shared_version: u64,
+    ) -> Option<PluginMessageState> {
+        let mut result = data.as_object()?.clone();
+        result.remove(REFRESH_ON_KEY);
+        let based_on = match result.remove(BASED_ON_VERSION_KEY) {
+            Some(Value::Number(n)) => n.as_u64()?.min(seen_shared_version),
+            None | Some(Value::Null) => seen_shared_version,
+            Some(_) => return None,
+        };
+        let mut values = previous.map(|p| p.values.clone()).unwrap_or_default();
+        for (key, value) in result {
+            if value.is_null() {
+                values.remove(&key);
+            } else {
+                values.insert(key, value);
+            }
+        }
+        let state = PluginMessageState {
+            version: previous.map_or(0, |p| p.version),
+            based_on_version: Some(based_on),
+            values,
+        };
+        state.validate().ok().map(|()| state)
+    }
+}
+/// Key of a [`UiViewerState`] result that names the shared version it was
+/// computed from.
+pub const BASED_ON_VERSION_KEY: &str = "basedOnVersion";
+/// Key of a [`UiViewerState`] result that narrows `refreshOn` for that card
+/// (a poll in a very large group reads only on presentation).
+pub const REFRESH_ON_KEY: &str = "refreshOn";
+impl UiViewerState {
+    /// The triggers a result `data` keeps for its card: its `refreshOn`
+    /// (strings, unknown ones ignored), intersected with the declared ones by
+    /// the caller ([`Self::refreshes_on_with`]). `None` when the result does
+    /// not say, so the declaration applies as is. Neither key is stored as a
+    /// value of the local layer.
+    pub fn result_refresh_on(data: &Value) -> Option<Vec<UiViewerRefresh>> {
+        let items = data.get(REFRESH_ON_KEY)?.as_array()?;
+        Some(
+            items
+                .iter()
+                .filter_map(|item| serde_json::from_value(item.clone()).ok())
+                .collect(),
+        )
+    }
+    /// Whether `trigger` reads the card, given the declaration and the
+    /// narrowing (`refreshOn`) its last result returned, if any. A result
+    /// only narrows: it never adds a trigger the manifest does not declare.
+    pub fn refreshes_on_with(
+        &self,
+        trigger: UiViewerRefresh,
+        narrowed: Option<&[UiViewerRefresh]>,
+    ) -> bool {
+        self.refreshes_on(trigger) && narrowed.is_none_or(|kept| kept.contains(&trigger))
+    }
+}
+
+/// The subtitle of an account entry: the scalar at `path` in the result of
+/// `operation` (a declared `query` taking no input), such as a balance text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiEntrySummary {
+    pub operation: String,
+    pub path: String,
+}
+impl UiEntrySummary {
+    pub fn validate(&self) -> Result<()> {
+        if self.operation.is_empty() || self.operation.len() > 128 || !valid_path(&self.path) {
+            return Err(ProtocolError::Denied("invalid UI entry summary"));
+        }
+        Ok(())
+    }
+    /// The subtitle in a result `data`: a non-blank scalar of at most 256
+    /// characters without control characters.
+    pub fn text(&self, data: &Value) -> Option<String> {
+        data.pointer(&self.path)
+            .and_then(scalar_text)
+            .map(|text| {
+                text.chars()
+                    .filter(|c| !c.is_control())
+                    .take(256)
+                    .collect::<String>()
+            })
+            .filter(|text| !text.trim().is_empty())
     }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -160,6 +380,25 @@ pub struct UiAction {
     pub confirm: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<UiActionStyle>,
+    /// Where the host shows the action: the button row (default) or the
+    /// card's overflow menu (⋯). A resolved view lists them apart
+    /// ([`ResolvedPluginView::actions`], [`ResolvedPluginView::menu_actions`]);
+    /// `hiddenWhen` applies to both. An action a block owns (a choices
+    /// submit, a row action) is never placed in the menu.
+    #[serde(default, skip_serializing_if = "UiActionPlacement::is_buttons")]
+    pub placement: UiActionPlacement,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UiActionPlacement {
+    #[default]
+    Buttons,
+    Menu,
+}
+impl UiActionPlacement {
+    pub fn is_buttons(&self) -> bool {
+        *self == Self::Buttons
+    }
 }
 /// A data-only test on the data the document is resolved against (for a row
 /// action, on the row). No expressions: a value list, the viewer, presence, or
@@ -587,6 +826,13 @@ impl UiDocument {
                 return Err(ProtocolError::Denied("invalid UI block"));
             }
         }
+        if self
+            .actions
+            .iter()
+            .any(|a| a.placement == UiActionPlacement::Menu && owned.contains(a.id.as_str()))
+        {
+            return Err(ProtocolError::Denied("invalid UI action placement"));
+        }
         Ok(())
     }
     /// The rows block, if any (admin-page documents hold at most one).
@@ -753,6 +999,42 @@ pub struct UiCatalog {
     pub version: u64,
     pub valid_until_ms: i64,
     pub plugins: Vec<ClientPlugin>,
+    /// Plugins of this tenant the viewer cannot use, with the reason, so a
+    /// card of one says why it is inert ("plugin disabled") instead of
+    /// nothing. A plugin in neither list resolves as `not_installed`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<UiUnavailablePlugin>,
+}
+/// A plugin listed in [`UiCatalog::unavailable`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiUnavailablePlugin {
+    pub plugin_id: String,
+    pub reason: UiUnavailableReason,
+}
+/// Why a plugin view is inert ([`ResolvedPluginView::unavailable_reason`]).
+/// Kits show a reason text and the envelope's
+/// [`PluginMessage::display_name`] with the summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UiUnavailableReason {
+    /// Installed but disabled for the tenant.
+    Disabled,
+    /// Not installed for the tenant (or uninstalled).
+    NotInstalled,
+    /// Installed and enabled, but not for this viewer.
+    NoPermission,
+    /// The plugin does not support this client platform.
+    UnsupportedPlatform,
+    /// The card's contribution, schema version or document is not one the
+    /// installed version (or this client) understands.
+    IncompatibleVersion,
+    /// The catalog could not be read; the card shows its summary until it can.
+    CatalogUnreachable,
+    /// A copy of a card that is not the one bound to its entity (forged or
+    /// forwarded): its content is shown, read-only. The only reason with
+    /// `available: true`.
+    UnboundCopy,
 }
 /// A plugin card in a conversation. Besides cards the host builds itself, an
 /// operation result may carry one as `data.message` (see [`Self::from_result`]):
@@ -767,7 +1049,14 @@ pub struct PluginMessage {
     pub schema_version: u32,
     pub summary: String,
     pub payload: Value,
+    /// The plugin's name, written by the platform when it posts the card (in
+    /// the tenant's default language), for inert cards to say whose card it
+    /// is. Display text only, at most [`MAX_PLUGIN_DISPLAY_NAME_BYTES`] bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
+/// Bytes of [`PluginMessage::display_name`].
+pub const MAX_PLUGIN_DISPLAY_NAME_BYTES: usize = 64;
 impl PluginMessage {
     /// The message a successful operation result of `plugin_id` asks the host to
     /// post: `data.message`, only when it is a valid message of that same plugin.
@@ -793,6 +1082,11 @@ impl PluginMessage {
             || self.schema_version != 1
             || self.summary.len() > 1024
             || self.summary.chars().any(char::is_control)
+            || self.display_name.as_deref().is_some_and(|name| {
+                name.trim().is_empty()
+                    || name.len() > MAX_PLUGIN_DISPLAY_NAME_BYTES
+                    || name.chars().any(char::is_control)
+            })
             || !self.payload.is_object()
             || serde_json::to_vec(self).map_or(true, |v| v.len() > 65536)
         {
@@ -801,11 +1095,12 @@ impl PluginMessage {
         Ok(())
     }
 }
-/// Presentation state a plugin returns for the message an action came from
-/// (`data.messageState`). Clients keep the highest version per message and
-/// overlay `values` on the payload before resolving: it is the local layer of
-/// [`UiStateLayers`]. It grants nothing: every action is still authorized by
-/// the plugin.
+/// The viewer's own state of a card: what a plugin returns for the message an
+/// action came from (`data.messageState`), and what a contribution's
+/// [`UiViewerState`] read returns. Clients keep the highest version per
+/// message and overlay `values` on the payload before resolving: it is the
+/// local layer of [`UiStateLayers`]. It grants nothing: every action is still
+/// authorized by the plugin.
 ///
 /// At most 16 keys `[A-Za-z0-9_]{1,64}` and 4 KiB; values are scalars (strings
 /// up to 1024 bytes, such as the viewer's own entry text), or arrays of up to
@@ -815,6 +1110,13 @@ impl PluginMessage {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginMessageState {
     pub version: u64,
+    /// The shared-state version (of the card's entity) these values were
+    /// computed from. While it is at least the applied shared version, local
+    /// keys replace shared keys of the same name; once the shared layer is
+    /// newer they do not (see [`UiStateLayers`]). Absent counts as 0: stale
+    /// against any shared layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub based_on_version: Option<u64>,
     pub values: Map<String, Value>,
 }
 impl PluginMessageState {
@@ -839,6 +1141,7 @@ impl PluginMessageState {
             Value::Object(_) => false,
         };
         if self.values.len() > Self::MAX_KEYS
+            || self.based_on_version.is_some_and(|v| v > i64::MAX as u64)
             || self
                 .values
                 .iter()
@@ -848,6 +1151,21 @@ impl PluginMessageState {
             return Err(ProtocolError::Denied("invalid plugin message state"));
         }
         Ok(())
+    }
+    /// Whether these values were computed from `shared_version` or a newer
+    /// one (always, when there is no shared layer: version 0).
+    pub fn is_fresh_against(&self, shared_version: u64) -> bool {
+        self.based_on_version.unwrap_or(0) >= shared_version
+    }
+    /// This layer with `basedOnVersion` at most `latest_shared_version`, the
+    /// newest shared version the caller knows of for the card. The version
+    /// comes from the plugin; capped, a plugin cannot pin its local layer
+    /// fresh against shared layers it has not published yet.
+    pub fn capped_at(mut self, latest_shared_version: u64) -> Self {
+        if let Some(based_on) = &mut self.based_on_version {
+            *based_on = (*based_on).min(latest_shared_version);
+        }
+        self
     }
     /// Shallow overlay: a value replaces the top-level payload key, null removes it.
     pub fn merge_into(&self, payload: &Value) -> Value {
@@ -860,10 +1178,21 @@ impl PluginMessageState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedPluginView {
     pub available: bool,
+    /// Why the view is inert (`available: false`), or `unbound_copy` for a
+    /// read-only copy (`available: true`, no actions, menu, detail or block
+    /// submits). Absent on an interactive view.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<UiUnavailableReason>,
     pub title: String,
     pub fields: Vec<ResolvedUiField>,
-    /// Visible actions not owned by a block, labels and confirmations translated.
+    /// Visible button-row actions not owned by a block, labels and
+    /// confirmations translated.
     pub actions: Vec<UiAction>,
+    /// Visible actions placed in the overflow menu (⋯), in document order,
+    /// resolved like `actions`. The host shows the menu only when this is
+    /// not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menu_actions: Vec<UiAction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<ResolvedUiBlock>,
     /// All document inputs, labels translated and initial values resolved; an
@@ -884,10 +1213,14 @@ impl ResolvedPluginView {
     /// detail document. Entries blocks pair up in order of appearance: the
     /// page's entries follow this view's in the same block, numbered on from
     /// this block's largest `index`, and `total` becomes the largest of the
-    /// two totals and the merged count. Everything else (title, fields,
-    /// actions, inputs, other blocks) stays as on the first page;
-    /// `nextCursor` becomes the page's. An unavailable view or page ends
-    /// paging without changing the entries.
+    /// two totals and the merged count. In a grouped block a page that starts
+    /// in the group this view ends with continues it: that first header is
+    /// dropped (its count and total update the shown header) and its entries
+    /// are numbered on within the group; a page starting a new group numbers
+    /// from 1 as resolved. Everything else (title, fields, actions, menu,
+    /// inputs, other blocks) stays as on the first page; `nextCursor` becomes
+    /// the page's. An unavailable view or page ends paging without changing
+    /// the entries.
     pub fn append_page(&mut self, page: ResolvedPluginView) {
         if !self.available || !page.available {
             self.next_cursor = None;
@@ -905,21 +1238,56 @@ impl ResolvedPluginView {
             let Some(next) = pages.next() else {
                 break;
             };
-            let offset = entries
-                .items
-                .iter()
-                .map(|item| item.index)
-                .max()
-                .unwrap_or(0);
-            entries.items.extend(next.items.into_iter().map(|mut item| {
-                item.index = item.index.saturating_add(offset);
-                item
-            }));
+            if entries.grouped {
+                entries.append_grouped(next.items);
+            } else {
+                let offset = entries
+                    .items
+                    .iter()
+                    .map(|item| item.index)
+                    .max()
+                    .unwrap_or(0);
+                entries.items.extend(next.items.into_iter().map(|mut item| {
+                    item.index = item.index.saturating_add(offset);
+                    item
+                }));
+            }
             entries.total = entries
                 .total
                 .max(next.total)
                 .max(entries.items.len() as u64);
         }
+    }
+
+    /// The read-only form of a card that is not the one bound to its entity
+    /// (a forged or forwarded copy): the content stays, everything that would
+    /// call the plugin goes (actions, menu, inputs, detail, block submits,
+    /// row actions), and `unavailableReason` is `unbound_copy`. An unavailable
+    /// view is returned as it is.
+    pub fn into_read_only(mut self) -> Self {
+        if !self.available {
+            return self;
+        }
+        self.unavailable_reason = Some(UiUnavailableReason::UnboundCopy);
+        self.actions.clear();
+        self.menu_actions.clear();
+        self.inputs.clear();
+        self.detail = false;
+        for block in &mut self.blocks {
+            match block {
+                ResolvedUiBlock::Choices(choices) => choices.action = None,
+                ResolvedUiBlock::Entries(entries) => entries.more = false,
+                ResolvedUiBlock::Rows(rows) => {
+                    rows.actions.clear();
+                    for row in &mut rows.rows {
+                        row.actions.clear();
+                        row.detail_input = None;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self
     }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -986,7 +1354,7 @@ fn resolve_document(
         },
     );
     let owned = document.owned_actions();
-    let actions = document
+    let (menu_actions, actions): (Vec<UiAction>, Vec<UiAction>) = document
         .actions
         .iter()
         .filter(|action| {
@@ -997,7 +1365,7 @@ fn resolve_document(
                     .any(|condition| condition.matches(data, viewer))
         })
         .map(|action| resolve_action(action, translation))
-        .collect();
+        .partition(|action| action.placement == UiActionPlacement::Menu);
     let detail = detail.filter(|d| !d.is_hidden(data, viewer));
     let scope = blocks::Scope {
         data,
@@ -1008,9 +1376,11 @@ fn resolve_document(
     };
     ResolvedPluginView {
         available: true,
+        unavailable_reason: None,
         title: translation.map_or(&document.title, |t| &t.title).clone(),
         fields,
         actions,
+        menu_actions,
         blocks: document
             .blocks
             .iter()
@@ -1061,21 +1431,27 @@ impl UiContribution {
         }
     }
 }
-fn unavailable(message: &PluginMessage) -> ResolvedPluginView {
-    ResolvedPluginView {
-        available: false,
-        title: message
-            .summary
-            .chars()
-            .filter(|c| !c.is_control())
-            .take(256)
-            .collect(),
-        fields: vec![],
-        actions: vec![],
-        blocks: vec![],
-        inputs: vec![],
-        detail: false,
-        next_cursor: None,
+impl ResolvedPluginView {
+    /// The inert view of `message`: its summary as the title (inert text, never
+    /// a source of actions) and `reason`.
+    pub fn unavailable(message: &PluginMessage, reason: UiUnavailableReason) -> Self {
+        Self {
+            available: false,
+            unavailable_reason: Some(reason),
+            title: message
+                .summary
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(256)
+                .collect(),
+            fields: vec![],
+            actions: vec![],
+            menu_actions: vec![],
+            blocks: vec![],
+            inputs: vec![],
+            detail: false,
+            next_cursor: None,
+        }
     }
 }
 impl UiCatalog {
@@ -1111,9 +1487,9 @@ impl UiCatalog {
     /// The view of a plugin message over its state layers
     /// (`payload ← shared ← local`); a composer-action form resolves against
     /// the plugin's [`composer_data`] instead ([`ClientPlugin::document_data`]).
-    /// A message of another tenant, an expired catalog, an uninstalled plugin,
-    /// another platform, an unknown contribution, version or kind, or an
-    /// invalid document resolves to the inert summary with `available: false`.
+    /// Anything that cannot be rendered resolves to the inert summary with
+    /// `available: false` and its [`UiUnavailableReason`] (see
+    /// [`Self::unavailable_reason`]).
     pub fn resolve_with_state(
         &self,
         message: &PluginMessage,
@@ -1121,12 +1497,12 @@ impl UiCatalog {
         context: UiRenderContext<'_>,
     ) -> ResolvedPluginView {
         match self.contribution_for(message, &context) {
-            Some((plugin, contribution)) => contribution.resolve(
+            Ok((plugin, contribution)) => contribution.resolve(
                 &plugin.document_data(contribution, &message.payload, state),
                 context.locale,
                 context.viewer,
             ),
-            None => unavailable(message),
+            Err(reason) => ResolvedPluginView::unavailable(message, reason),
         }
     }
     /// The detail view of a message, resolved against the result `data` of the
@@ -1137,35 +1513,79 @@ impl UiCatalog {
         data: &Value,
         context: UiRenderContext<'_>,
     ) -> ResolvedPluginView {
-        self.contribution_for(message, &context)
-            .and_then(|(_, c)| c.resolve_detail(data, context.locale, context.viewer))
-            .unwrap_or_else(|| unavailable(message))
+        match self.contribution_for(message, &context) {
+            Ok((_, c)) => c
+                .resolve_detail(data, context.locale, context.viewer)
+                .unwrap_or_else(|| {
+                    ResolvedPluginView::unavailable(
+                        message,
+                        UiUnavailableReason::IncompatibleVersion,
+                    )
+                }),
+            Err(reason) => ResolvedPluginView::unavailable(message, reason),
+        }
+    }
+    /// Why `message` cannot be rendered in `context`, or `None` when it can:
+    /// - another tenant's message, or a plugin in neither `plugins` nor
+    ///   `unavailable`: `not_installed`;
+    /// - a plugin in `unavailable`: its reason;
+    /// - an expired catalog: `catalog_unreachable` (the host reads a fresh one);
+    /// - a plugin that does not list the platform: `unsupported_platform`;
+    /// - an invalid envelope, an unknown contribution, schema version or kind,
+    ///   or an invalid document: `incompatible_version`.
+    pub fn unavailable_reason(
+        &self,
+        message: &PluginMessage,
+        context: &UiRenderContext<'_>,
+    ) -> Option<UiUnavailableReason> {
+        self.contribution_for(message, context).err()
     }
     fn contribution_for(
         &self,
         message: &PluginMessage,
         context: &UiRenderContext<'_>,
-    ) -> Option<(&ClientPlugin, &UiContribution)> {
-        if self.tenant_id != context.tenant
-            || self.valid_until_ms <= context.now_ms
-            || message.validate().is_err()
-        {
-            return None;
+    ) -> std::result::Result<(&ClientPlugin, &UiContribution), UiUnavailableReason> {
+        if self.tenant_id != context.tenant {
+            return Err(UiUnavailableReason::NotInstalled);
         }
-        let plugin = self.plugins.iter().find(|p| {
-            p.plugin_id == message.plugin_id && p.extensions.platforms.contains(&context.platform)
-        })?;
-        let contribution = plugin.extensions.contributions.iter().find(|c| {
-            c.id == message.contribution_id
-                && c.schema_version == message.schema_version
-                && c.kind == context.kind
-        })?;
-        (contribution.schema.validate().is_ok()
-            && contribution
-                .detail
-                .as_ref()
-                .is_none_or(|detail| detail.validate().is_ok()))
-        .then_some((plugin, contribution))
+        if self.valid_until_ms <= context.now_ms {
+            return Err(UiUnavailableReason::CatalogUnreachable);
+        }
+        if message.validate().is_err() {
+            return Err(UiUnavailableReason::IncompatibleVersion);
+        }
+        let Some(plugin) = self
+            .plugins
+            .iter()
+            .find(|p| p.plugin_id == message.plugin_id)
+        else {
+            return Err(self
+                .unavailable
+                .iter()
+                .find(|p| p.plugin_id == message.plugin_id)
+                .map_or(UiUnavailableReason::NotInstalled, |p| p.reason));
+        };
+        if !plugin.extensions.platforms.contains(&context.platform) {
+            return Err(UiUnavailableReason::UnsupportedPlatform);
+        }
+        plugin
+            .extensions
+            .contributions
+            .iter()
+            .find(|c| {
+                c.id == message.contribution_id
+                    && c.schema_version == message.schema_version
+                    && c.kind == context.kind
+            })
+            .filter(|contribution| {
+                contribution.schema.validate().is_ok()
+                    && contribution
+                        .detail
+                        .as_ref()
+                        .is_none_or(|detail| detail.validate().is_ok())
+            })
+            .map(|contribution| (plugin, contribution))
+            .ok_or(UiUnavailableReason::IncompatibleVersion)
     }
     /// This validates declaration and host consent, not server-side authorization.
     /// Invoke again through Core; it checks current grants, flags and actor policy.

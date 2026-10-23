@@ -44,6 +44,10 @@ pub struct PluginManifest {
     pub artifact: Option<PluginArtifact>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_version_range: Option<String>,
+    /// The management surface (Admin Extension Contract), see
+    /// [`crate::admin::PluginAdmin`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin: Option<crate::admin::PluginAdmin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -100,6 +104,27 @@ pub struct PluginOperation {
     pub timeout_ms: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_capabilities: Vec<crate::resource::HostCapability>,
+    /// `query` declares that the operation only reads: hosts may call it in
+    /// the background without a user gesture (a card's `viewerState`, an
+    /// account entry's `summary`). Default `command`. The plugin still
+    /// authorizes every call; the mode only says what a host may schedule.
+    #[serde(default, skip_serializing_if = "OperationMode::is_command")]
+    pub mode: OperationMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum OperationMode {
+    /// May change state; invoked on a user gesture or by the plugin's own flow.
+    #[default]
+    Command,
+    /// Reads only; safe for hosts to call in the background.
+    Query,
+}
+impl OperationMode {
+    pub fn is_command(&self) -> bool {
+        *self == Self::Command
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -215,6 +240,53 @@ pub struct UiContribution {
     /// operation that returns its data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::ui::UiDetail>,
+    /// message-content only: the viewer's own layer of the card, read in the
+    /// background by the core SDK while the card is presented (see
+    /// [`crate::ui::UiViewerState`]). Its operation must be a declared
+    /// `query`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewer_state: Option<crate::ui::UiViewerState>,
+    /// message-content only, with `entityPath`: the operation Core calls
+    /// with a platform system ticket when the card bound to an entity goes
+    /// away (see [`UiEntityLifecycle`]). A card with `entityPath` and no
+    /// `unbound` operation is valid; [`PluginManifest::warnings`] reports it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_lifecycle: Option<UiEntityLifecycle>,
+    /// account-entry only: a scalar read from a `query` operation result and
+    /// shown as the entry's subtitle (a wallet balance). Hosts call it on
+    /// demand; listing entries never calls it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<crate::ui::UiEntrySummary>,
+}
+
+/// What Core tells a plugin about the card bound to one of its entities.
+///
+/// Core invokes `unbound` with a platform system ticket (its own call domain,
+/// verified by the plugin host; never a user ticket) and the input
+/// `{entity, reason, serverMsgId?}`, `reason` one of
+/// [`UNBOUND_REASON_RECALLED`] (the bound card was recalled) and
+/// [`UNBOUND_REASON_POST_FAILED`] (the platform could not post the card).
+/// Delivery is at least once: plugins handle it idempotently per entity (a
+/// poll is cancelled, a red packet refunded at once).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiEntityLifecycle {
+    /// Wire operation declared by the plugin.
+    pub unbound: String,
+}
+/// [`UiEntityLifecycle::unbound`] reason: the bound card was recalled.
+pub const UNBOUND_REASON_RECALLED: &str = "recalled";
+/// [`UiEntityLifecycle::unbound`] reason: the platform's post of the card
+/// failed for good.
+pub const UNBOUND_REASON_POST_FAILED: &str = "post_failed";
+
+/// A non-fatal finding of [`PluginManifest::warnings`]: publishing proceeds,
+/// tooling shows it to the author.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ManifestWarning {
+    pub field: String,
+    pub reason: String,
 }
 
 fn default_ui_order() -> i32 {
@@ -258,6 +330,12 @@ pub enum UiContributionKind {
     ConversationMenu,
     ComposerAction,
     Page,
+    /// An entry of the "Me" (account) screen, such as a wallet: its title,
+    /// translations and target come from its document, which holds no fields,
+    /// blocks or inputs and exactly one action targeting a `page`
+    /// contribution of the same plugin. `icon` and `order` place it; an
+    /// optional `summary` names a `query` whose result gives a subtitle.
+    AccountEntry,
     /// Console management page for tenant staff, rendered from the same
     /// document model. Never part of the client catalog; its operations are
     /// invoked through Core `dispatch_admin` with a staff ticket.
@@ -609,12 +687,73 @@ impl PluginManifest {
             "clientExtensions.contributions",
             "too many contributions",
         )?;
+        if let Some(admin) = &self.admin {
+            admin.validate(self)?;
+        }
         Ok(())
     }
 
-    /// Contribution-kind rules for the v2 fields: entity binding and forwarding
-    /// on message-content, audience on composer-action, detail on message-content
-    /// and admin-page, rows and staff permission on admin-page.
+    /// Operations the client contributions use: action targets, rows sources,
+    /// details, viewer states, summaries and entity lifecycle callbacks of
+    /// every client-surface contribution. No admin operation may be one of
+    /// them.
+    pub fn client_operation_refs(&self) -> BTreeSet<String> {
+        use crate::ui::UiActionTarget;
+        let mut operations = BTreeSet::new();
+        for contribution in &self.client_extensions.contributions {
+            if !contribution.kind.is_client_surface() {
+                continue;
+            }
+            operations.extend(
+                [
+                    contribution.detail.as_ref().map(|d| &d.operation),
+                    contribution.viewer_state.as_ref().map(|v| &v.operation),
+                    contribution.summary.as_ref().map(|s| &s.operation),
+                    contribution.entity_lifecycle.as_ref().map(|l| &l.unbound),
+                ]
+                .into_iter()
+                .flatten()
+                .cloned(),
+            );
+            for document in std::iter::once(&contribution.schema)
+                .chain(contribution.detail.as_ref().map(|detail| &detail.document))
+            {
+                operations.extend(document.rows_sources().map(str::to_owned));
+                operations.extend(document.actions.iter().filter_map(|a| match &a.target {
+                    UiActionTarget::Operation { operation } => Some(operation.clone()),
+                    _ => None,
+                }));
+            }
+        }
+        operations
+    }
+
+    /// Non-fatal findings about a manifest that [`Self::validate`] accepts:
+    /// a message-content card bound to an entity (`entityPath`) without
+    /// `entityLifecycle.unbound` never learns that its card was recalled or
+    /// never posted, so its entity can be left open (a poll still running, a
+    /// red packet held until it expires).
+    pub fn warnings(&self) -> Vec<ManifestWarning> {
+        self.client_extensions
+            .contributions
+            .iter()
+            .filter(|c| {
+                c.kind == UiContributionKind::MessageContent
+                    && c.entity_path.is_some()
+                    && c.entity_lifecycle.is_none()
+            })
+            .map(|c| ManifestWarning {
+                field: format!("clientExtensions.contributions[{}].entityLifecycle", c.id),
+                reason: "entityPath without entityLifecycle.unbound: the plugin is not told when its card is recalled or never posted".to_owned(),
+            })
+            .collect()
+    }
+
+    /// Contribution-kind rules for the v2 fields: entity binding, forwarding,
+    /// viewer state and entity lifecycle on message-content, audience on
+    /// composer-action, detail on message-content and admin-page, the single
+    /// page action and summary of account-entry, rows and staff permission on
+    /// admin-page.
     fn validate_contribution_surface(&self, contribution: &UiContribution) -> Result<()> {
         use crate::ui::UiActionTarget;
         let kind = contribution.kind;
@@ -652,6 +791,63 @@ impl PluginManifest {
                 self.operation(&detail.operation).is_some(),
                 "clientExtensions.contributions.detail.operation",
                 "must be a declared operation",
+            )?;
+        }
+        if let Some(viewer) = &contribution.viewer_state {
+            ensure(
+                message_content,
+                "clientExtensions.contributions.viewerState",
+                "message-content only",
+            )?;
+            viewer.validate()?;
+            ensure(
+                self.operation(&viewer.operation)
+                    .is_some_and(|op| op.mode == OperationMode::Query),
+                "clientExtensions.contributions.viewerState.operation",
+                "must be a declared query operation",
+            )?;
+        }
+        if let Some(lifecycle) = &contribution.entity_lifecycle {
+            ensure(
+                message_content && contribution.entity_path.is_some(),
+                "clientExtensions.contributions.entityLifecycle",
+                "message-content with entityPath only",
+            )?;
+            ensure(
+                self.operation(&lifecycle.unbound).is_some(),
+                "clientExtensions.contributions.entityLifecycle.unbound",
+                "must be a declared operation",
+            )?;
+        }
+        let account_entry = kind == UiContributionKind::AccountEntry;
+        if account_entry {
+            let document = &contribution.schema;
+            ensure(
+                document.fields.is_empty()
+                    && document.blocks.is_empty()
+                    && document.inputs.is_empty()
+                    && contribution.detail.is_none()
+                    && matches!(
+                        document.actions.as_slice(),
+                        [action] if matches!(action.target, UiActionTarget::Page { .. })
+                            && action.form.is_empty()
+                    ),
+                "clientExtensions.contributions.schema",
+                "account-entry document holds exactly one page action and nothing else",
+            )?;
+        }
+        if let Some(summary) = &contribution.summary {
+            ensure(
+                account_entry,
+                "clientExtensions.contributions.summary",
+                "account-entry only",
+            )?;
+            summary.validate()?;
+            ensure(
+                self.operation(&summary.operation)
+                    .is_some_and(|op| op.mode == OperationMode::Query),
+                "clientExtensions.contributions.summary.operation",
+                "must be a declared query operation",
             )?;
         }
         let documents = std::iter::once(&contribution.schema)
@@ -701,11 +897,16 @@ impl PluginManifest {
             .find(|c| c.id == id)
     }
 
-    /// Wire operations staff may invoke through `dispatch_admin`: the targets,
-    /// rows sources and detail operations of the admin-page contributions.
+    /// Wire operations staff may invoke through `dispatch_admin`: the
+    /// `admin.operations`, and the targets, rows sources and detail
+    /// operations of the admin-page contributions.
     pub fn admin_operations(&self) -> BTreeSet<String> {
         use crate::ui::UiActionTarget;
-        let mut operations = BTreeSet::new();
+        let mut operations = self
+            .admin
+            .as_ref()
+            .map(crate::admin::PluginAdmin::operation_ids)
+            .unwrap_or_default();
         for contribution in &self.client_extensions.contributions {
             if contribution.kind != UiContributionKind::AdminPage {
                 continue;
@@ -724,6 +925,26 @@ impl PluginManifest {
             }
         }
         operations
+    }
+
+    /// The staff permission code a staff ticket for the admin `operation`
+    /// carries: the [`crate::invocation::plugin_permission`] code of the
+    /// permission its `admin.operations` entry declares, else, for an
+    /// operation of an admin-page contribution,
+    /// [`crate::invocation::plugin_admin_permission`]. `None` for any other
+    /// operation.
+    pub fn admin_permission_for(&self, operation: &str) -> Option<String> {
+        if let Some(declared) = self
+            .admin
+            .as_ref()
+            .and_then(|admin| admin.operation(operation))
+        {
+            return crate::invocation::plugin_permission(&self.plugin_id, &declared.permission);
+        }
+        self.admin_operations()
+            .contains(operation)
+            .then(|| crate::invocation::plugin_admin_permission(&self.plugin_id))
+            .flatten()
     }
 
     /// The subset of a tenant configuration that clients receive with the

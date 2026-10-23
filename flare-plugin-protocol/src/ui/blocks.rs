@@ -211,11 +211,26 @@ pub struct UiChoiceOption {
     pub label: String,
 }
 
-/// Numbered entries (solitaire lines, comments). The first `limit` are shown;
+/// Entries (solitaire lines, comments, voters). The first `limit` are shown;
 /// when the total is larger and the contribution offers its detail, the host
 /// offers "view all", which opens that detail (`more`). Without a detail, with
 /// the detail hidden by its `hiddenWhen`, and inside the detail document
 /// itself, `more` is false.
+///
+/// Numbering: with `numbered` (the default) kits show each entry's `index`;
+/// with `numbered: false` they show no position numbers at all.
+///
+/// Grouping (`groupPath`): entries are grouped by the scalar at `groupPath`
+/// inside each entry, in data order: a new group starts wherever that key
+/// differs from the previous entry's (so the plugin sends entries already
+/// ordered by group, such as voters by option). The first entry of each group
+/// carries the group header ([`ResolvedUiEntry::group`]): its key, its label
+/// (`groupLabelPath`, else the key), and when given its count
+/// (`groupCountPath`, such as the option's votes) and total
+/// (`groupTotalPath`, such as all votes) with the percentage. In a grouped
+/// block `index` restarts at 1 in each group, and an entry without a key at
+/// `groupPath` is not shown. Kits render one flat list and put a header row
+/// before every entry that has `group`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UiEntriesBlock {
@@ -252,6 +267,21 @@ pub struct UiEntriesBlock {
     /// Shown when the list is present but empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub empty_text: Option<String>,
+    /// Inside an entry: its group key (a scalar). Turns grouping on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_path: Option<String>,
+    /// Inside an entry: its group's label (the key when absent or blank).
+    /// Read from the first entry of each group; requires `groupPath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_label_path: Option<String>,
+    /// Inside an entry: its group's count, a non-negative integer. Requires
+    /// `groupPath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_count_path: Option<String>,
+    /// Inside an entry: the denominator of the group percentages, a
+    /// non-negative integer. Requires `groupPath`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_total_path: Option<String>,
     /// Not shown when any condition (`0..=4`) matches the resolved data.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden_when: Vec<UiCondition>,
@@ -484,6 +514,7 @@ pub struct ResolvedUiChoice {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedUiEntries {
     pub items: Vec<ResolvedUiEntry>,
+    /// Show `index` before each entry; false: no numbers at all.
     pub numbered: bool,
     pub total: u64,
     /// More entries exist than shown and the contribution offers its detail
@@ -491,17 +522,70 @@ pub struct ResolvedUiEntries {
     pub more: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub empty_text: Option<String>,
+    /// The block groups its entries: the first entry of each group carries
+    /// [`ResolvedUiEntry::group`], and `index` counts within the group.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub grouped: bool,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedUiEntry {
-    /// 1-based position in the data.
+    /// 1-based position in the data; in a grouped block, within its group.
     pub index: u32,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
+    /// Grouped block only: present on the first entry of each group, the
+    /// header kits render before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<ResolvedUiEntryGroup>,
+}
+/// The header of a group of entries ("Option A · 5 votes · 42%").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolvedUiEntryGroup {
+    /// The group key as text; equal keys are the same group across pages.
+    pub key: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    /// `0..=100`, rounded half up, when both `count` and `total` are known (0
+    /// when `total` is 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+}
+impl ResolvedUiEntries {
+    /// Append a page's entries to a grouped block (see
+    /// [`super::ResolvedPluginView::append_page`]).
+    pub(crate) fn append_grouped(&mut self, page: Vec<ResolvedUiEntry>) {
+        let last_header = self.items.iter().rposition(|item| item.group.is_some());
+        let last_key =
+            last_header.and_then(|i| self.items[i].group.as_ref().map(|g| g.key.clone()));
+        let offset = self.items.last().map_or(0, |item| item.index);
+        let mut continuing = true;
+        for mut item in page {
+            if let Some(group) = item.group.take() {
+                if continuing && last_key.as_deref() == Some(group.key.as_str()) {
+                    if let Some(header) = last_header.and_then(|i| self.items[i].group.as_mut()) {
+                        header.count = group.count.or(header.count);
+                        header.total = group.total.or(header.total);
+                        header.percent = group.percent.or(header.percent);
+                    }
+                } else {
+                    continuing = false;
+                    item.group = Some(group);
+                }
+            }
+            if continuing {
+                item.index = item.index.saturating_add(offset);
+            }
+            self.items.push(item);
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -721,9 +805,17 @@ impl UiBlock {
                         &b.user_path,
                         &b.user_ids_path,
                         &b.count_path,
+                        &b.group_path,
+                        &b.group_label_path,
+                        &b.group_count_path,
+                        &b.group_total_path,
                     ]
                     .into_iter()
                     .all(optional_path)
+                    && (b.group_path.is_some()
+                        || (b.group_label_path.is_none()
+                            && b.group_count_path.is_none()
+                            && b.group_total_path.is_none()))
                     && b.limit
                         .is_none_or(|n| (1..=MAX_UI_ENTRIES_LIMIT).contains(&n))
                     && optional_text(&b.empty_text)
@@ -1090,6 +1182,8 @@ impl UiEntriesBlock {
         let items = scope.data.pointer(&self.items_path)?.as_array()?;
         let aligned_users = at(scope.data, &self.user_ids_path).and_then(Value::as_array);
         let limit = usize::from(self.limit.unwrap_or(DEFAULT_UI_ENTRIES_LIMIT));
+        let mut current_group: Option<String> = None;
+        let mut in_group = 0u32;
         let shown: Vec<ResolvedUiEntry> = items
             .iter()
             .take(limit)
@@ -1112,11 +1206,26 @@ impl UiEntriesBlock {
                 if text.is_none() && name.is_none() && user.is_none() {
                     return None;
                 }
+                let (index, group) = match &self.group_path {
+                    None => (position as u32 + 1, None),
+                    Some(path) => {
+                        let key = non_blank(item.pointer(path))?;
+                        let header = (current_group.as_deref() != Some(key.as_str()))
+                            .then(|| self.group_header(item, &key));
+                        if header.is_some() {
+                            current_group = Some(key);
+                            in_group = 0;
+                        }
+                        in_group += 1;
+                        (in_group, header)
+                    }
+                };
                 Some(ResolvedUiEntry {
-                    index: position as u32 + 1,
+                    index,
                     text: text.unwrap_or_default(),
                     name,
                     user_id: user,
+                    group,
                 })
             })
             .collect();
@@ -1129,7 +1238,23 @@ impl UiEntriesBlock {
             numbered: self.numbered,
             total,
             empty_text: label(scope, &self.empty_text),
+            grouped: self.group_path.is_some(),
         })
+    }
+
+    /// The header of the group `key` starts at `item`. The label is data (an
+    /// option label), shown as sent like every other value read from data.
+    fn group_header(&self, item: &Value, key: &str) -> ResolvedUiEntryGroup {
+        let read = |path: &Option<String>| path.as_deref().and_then(|p| item.pointer(p));
+        let count = read(&self.group_count_path).and_then(as_count);
+        let total = read(&self.group_total_path).and_then(as_count);
+        ResolvedUiEntryGroup {
+            key: key.to_owned(),
+            label: non_blank(read(&self.group_label_path)).unwrap_or_else(|| key.to_owned()),
+            count,
+            total,
+            percent: count.zip(total).map(|(count, total)| percent(count, total)),
+        }
     }
 }
 

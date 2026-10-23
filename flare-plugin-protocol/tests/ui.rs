@@ -20,6 +20,7 @@ fn catalog() -> UiCatalog {
                 .collect(),
             configuration: Default::default(),
         }],
+        unavailable: vec![],
     }
 }
 #[test]
@@ -31,6 +32,7 @@ fn all_six_platforms_resolve_identical_history_and_declared_actions() {
         schema_version: 1,
         summary: "红包".into(),
         payload: json!({"pollId":"one","question":"<img src=x onerror=alert(1)>","currency":"CNY"}),
+        display_name: None,
     };
     let mut expected = None;
     for platform in [
@@ -180,6 +182,7 @@ fn localized_ui_and_input_bindings_do_not_forward_injected_fields() {
         schema_version: 1,
         summary: "红包".into(),
         payload: json!({"pollId":"one","tenantId":"202","userId":"victim","amount":"99999"}),
+        display_name: None,
     };
     let view = catalog.resolve_with_context(
         &message,
@@ -227,6 +230,7 @@ fn card_view(
         schema_version: 1,
         summary: "poll".into(),
         payload,
+        display_name: None,
     };
     catalog.resolve_with_context(
         &message,

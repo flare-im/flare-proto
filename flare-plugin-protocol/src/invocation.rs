@@ -7,6 +7,9 @@
 //! - [`PluginCallClaims`]: Core → plugin, a user invoked an operation;
 //! - [`PluginStaffCallClaims`]: Core → plugin, a tenant staff member invoked an
 //!   admin-page operation from the console (`dispatch_admin`);
+//! - [`PluginSystemCallClaims`]: Core → plugin, the platform itself calls a
+//!   platform callback of the plugin (the entity lifecycle `unbound`), with no
+//!   user or staff behind it;
 //! - [`PluginRuntimeClaims`]: plugin → Core, the plugin deployment itself calls a
 //!   host write capability with no user or staff call in flight.
 use crate::{ProtocolError, Result, resource::HostCapability};
@@ -26,6 +29,7 @@ pub const MAX_PERMISSION_CODE_BYTES: usize = 128;
 
 const CALL_DOMAIN: &str = "flare.plugin.call.v1";
 const STAFF_CALL_DOMAIN: &str = "flare.plugin.staff-call.v1";
+const SYSTEM_CALL_DOMAIN: &str = "flare.plugin.system-call.v1";
 const RUNTIME_DOMAIN: &str = "flare.plugin.runtime.v1";
 
 /// The staff permission code that authorizes the admin operations of
@@ -34,6 +38,28 @@ const RUNTIME_DOMAIN: &str = "flare.plugin.runtime.v1";
 pub fn plugin_admin_permission(plugin_id: &str) -> Option<String> {
     let code = format!("plugin:{plugin_id}:admin");
     (!plugin_id.is_empty() && code.len() <= MAX_PERMISSION_CODE_BYTES).then_some(code)
+}
+
+/// The staff permission code of the admin permission `permission` (an
+/// [`crate::admin::AdminPermission`] id) of `plugin_id`:
+/// `plugin:<pluginId>:<permission>`. `None` when either part is empty or
+/// holds `:`, or the code would exceed [`MAX_PERMISSION_CODE_BYTES`].
+pub fn plugin_permission(plugin_id: &str, permission: &str) -> Option<String> {
+    let code = format!("plugin:{plugin_id}:{permission}");
+    (!plugin_id.is_empty()
+        && !permission.is_empty()
+        && !plugin_id.contains(':')
+        && !permission.contains(':')
+        && code.len() <= MAX_PERMISSION_CODE_BYTES)
+        .then_some(code)
+}
+
+/// The plugin id and permission id of a `plugin:<pluginId>:<permission>` code
+/// (see [`plugin_permission`]).
+pub fn plugin_permission_target(code: &str) -> Option<(&str, &str)> {
+    let (plugin_id, permission) = code.strip_prefix("plugin:")?.rsplit_once(':')?;
+    (plugin_permission(plugin_id, permission).as_deref() == Some(code))
+        .then_some((plugin_id, permission))
 }
 
 /// The plugin id of a `plugin:<pluginId>:admin` permission code.
@@ -108,11 +134,14 @@ impl PluginCallClaims {
     }
 }
 
-/// Ticket for an admin-page operation invoked by a tenant staff member. Core
-/// signs it only after it verified a `Staff` signed context for exactly this
-/// tenant whose permission is [`plugin_admin_permission`] of this plugin, and
-/// only for an operation in [`crate::PluginManifest::admin_operations`]. The
-/// plugin verifies it with [`PluginCallVerifier::verify_staff`] and still
+/// Ticket for an admin operation invoked by a tenant staff member. Core signs
+/// it only after it verified a `Staff` signed context for exactly this tenant
+/// holding `permission`, a [`plugin_permission`] code of this plugin (the
+/// permission the operation declares in the manifest's `admin` section, or
+/// [`plugin_admin_permission`] for an admin-page operation), and only for an
+/// operation in [`crate::PluginManifest::admin_operations`]. The plugin
+/// verifies it with [`PluginCallVerifier::verify_staff`], checks that
+/// `permission` is the one its manifest declares for `operation`, and still
 /// applies its own rules. It carries no conversation: admin work is
 /// tenant-scoped and names its entity in the input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,7 +159,8 @@ pub struct PluginStaffCallClaims {
     /// The staff member's organization; `None` for platform staff.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub org_id: Option<String>,
-    /// Always `plugin:<pluginId>:admin`.
+    /// `plugin:<pluginId>:<permission>` of this ticket's plugin
+    /// ([`plugin_permission`]).
     pub permission: String,
     pub operation: String,
     pub request_id: String,
@@ -151,7 +181,8 @@ impl PluginStaffCallClaims {
         ]) || self.tenant_id == "*"
             || self.grant_revision == 0
             || self.org_id.as_deref().is_some_and(|id| !bounded_ids(&[id]))
-            || plugin_admin_permission(&self.plugin_id).as_deref() != Some(self.permission.as_str())
+            || plugin_permission_target(&self.permission)
+                .is_none_or(|(plugin_id, _)| plugin_id != self.plugin_id)
             || !lifetime_ok(
                 self.issued_at_ms,
                 self.expires_at_ms,
@@ -162,6 +193,69 @@ impl PluginStaffCallClaims {
             || !crate::manifest::is_sha256_digest(&self.configuration_digest)
         {
             return Err(ProtocolError::Denied("invalid plugin staff ticket"));
+        }
+        Ok(())
+    }
+}
+
+/// Ticket for a platform callback Core makes on its own: today the entity
+/// lifecycle `unbound` operation of a message-content contribution
+/// ([`crate::manifest::UiEntityLifecycle`]), when the card bound to `entity`
+/// was recalled or could not be posted. No user or staff stands behind it, so
+/// it carries no actor or conversation, and it verifies only with
+/// [`PluginCallVerifier::verify_system`] (user and staff tickets never verify
+/// there, nor it as them). The plugin still checks that `operation` is the
+/// `unbound` operation its manifest declares and handles the call
+/// idempotently per entity (Core delivers at least once).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginSystemCallClaims {
+    pub tenant_id: String,
+    pub plugin_id: String,
+    pub plugin_version: String,
+    pub manifest_digest: String,
+    pub deployment_id: String,
+    pub grant_id: String,
+    pub grant_revision: u64,
+    pub configuration_digest: String,
+    pub operation: String,
+    /// The entity whose card went away ([`crate::state::valid_entity_id`]).
+    pub entity: String,
+    /// [`crate::manifest::UNBOUND_REASON_RECALLED`] or
+    /// [`crate::manifest::UNBOUND_REASON_POST_FAILED`].
+    pub reason: String,
+    pub request_id: String,
+    pub issued_at_ms: i64,
+    pub expires_at_ms: i64,
+}
+impl PluginSystemCallClaims {
+    pub fn validate(&self, now_ms: i64) -> Result<()> {
+        if !bounded_ids(&[
+            &self.tenant_id,
+            &self.plugin_id,
+            &self.plugin_version,
+            &self.deployment_id,
+            &self.grant_id,
+            &self.operation,
+            &self.request_id,
+        ]) || self.tenant_id == "*"
+            || self.grant_revision == 0
+            || !crate::state::valid_entity_id(&self.entity)
+            || !matches!(
+                self.reason.as_str(),
+                crate::manifest::UNBOUND_REASON_RECALLED
+                    | crate::manifest::UNBOUND_REASON_POST_FAILED
+            )
+            || !lifetime_ok(
+                self.issued_at_ms,
+                self.expires_at_ms,
+                now_ms,
+                MAX_CALL_TTL_MS,
+            )
+            || !crate::manifest::is_sha256_digest(&self.manifest_digest)
+            || !crate::manifest::is_sha256_digest(&self.configuration_digest)
+        {
+            return Err(ProtocolError::Denied("invalid plugin system ticket"));
         }
         Ok(())
     }
@@ -328,6 +422,10 @@ impl PluginCallSigner {
         claims.validate(now_ms)?;
         seal(STAFF_CALL_DOMAIN, &self.key_id, &self.key, claims)
     }
+    pub fn sign_system(&self, claims: &PluginSystemCallClaims, now_ms: i64) -> Result<String> {
+        claims.validate(now_ms)?;
+        seal(SYSTEM_CALL_DOMAIN, &self.key_id, &self.key, claims)
+    }
 }
 #[derive(Default, Clone)]
 pub struct PluginCallVerifier {
@@ -372,6 +470,35 @@ impl PluginCallVerifier {
         claims.validate(now_ms)?;
         Ok(claims)
     }
+    /// A platform system ticket. User and staff tickets never verify here,
+    /// nor it as them. The caller still checks plugin, deployment, request id,
+    /// the tenant grant revision, and that `operation` is the plugin's
+    /// declared `entityLifecycle.unbound`.
+    pub fn verify_system(&self, token: &str, now_ms: i64) -> Result<PluginSystemCallClaims> {
+        let (_, claims): (_, PluginSystemCallClaims) =
+            open(SYSTEM_CALL_DOMAIN, token, |id| self.keys.get(id))?;
+        claims.validate(now_ms)?;
+        Ok(claims)
+    }
+    /// Whether this verifier holds the key `key_id` ([`ticket_key_id`]).
+    pub fn has_key(&self, key_id: &str) -> bool {
+        self.keys.contains_key(key_id)
+    }
+}
+
+/// The key id a ticket names, read from its envelope without verifying
+/// anything; `None` when `token` is not a ticket envelope. With
+/// [`PluginCallVerifier::has_key`] a host tells a ticket signed under a key it
+/// has not been given yet (Core rotated its signing key first) from one that
+/// does not verify.
+pub fn ticket_key_id(token: &str) -> Option<String> {
+    if token.len() > 16384 {
+        return None;
+    }
+    let bytes = URL_SAFE_NO_PAD.decode(token).ok()?;
+    let envelope: Envelope = serde_json::from_slice(&bytes).ok()?;
+    valid_key_id(&envelope.key_id).ok()?;
+    Some(envelope.key_id)
 }
 
 /// Held by the plugin deployment; the key is provisioned per deployment and is
