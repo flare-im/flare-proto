@@ -1,4 +1,4 @@
-//! UiDocument v2 additions: admin-page filters, static choices options,
+//! UiDocument v2 additions: admin page filters, static choices options,
 //! composer data and `maxPath`, `allOf` conditions, entries `userIdsPath` and
 //! detail paging. Every addition is optional; documents without them resolve
 //! as before.
@@ -47,7 +47,15 @@ fn issues(result: Result<Map<String, Value>, Vec<UiFormError>>) -> Vec<(String, 
         .collect()
 }
 
-// ---- admin-page filters ----
+// ---- admin page filters ----
+
+/// A console page (`admin.pages`) over `document`.
+fn admin_page(document: Value) -> flare_plugin_protocol::admin::AdminPage {
+    serde_json::from_value(json!({
+        "id": "things", "kind": "list", "permission": "read", "document": document
+    }))
+    .unwrap()
+}
 
 fn admin_document(filters: Option<Value>) -> Value {
     let mut rows = json!({
@@ -118,7 +126,7 @@ fn admin_page_filters_are_the_listed_inputs_only() {
         json!({"name": "新"})
     );
     // The resolved rows block names its filters; every input is still listed.
-    let admin = contribution("admin-page", admin_document(Some(json!(["status"]))), None);
+    let admin = admin_page(admin_document(Some(json!(["status"]))));
     let view = admin.resolve(&json!({"items": [{"id": "a", "name": "A"}]}), "", "s");
     assert_eq!(view.inputs.len(), 3);
     let ResolvedUiBlock::Rows(rows) = only_block(&view) else {
@@ -145,11 +153,11 @@ fn admin_page_without_filters_keeps_every_input_a_filter() {
         [("name".to_owned(), UiFormIssue::Required)],
         "as before: every input is a filter"
     );
-    let admin = contribution("admin-page", admin_document(None), None);
+    let admin = admin_page(admin_document(None));
     let view = admin.resolve(&json!({"items": []}), "", "s");
     let block = serde_json::to_value(only_block(&view)).unwrap();
     assert!(block.get("filters").is_none());
-    let declared = serde_json::to_value(&admin.schema).unwrap();
+    let declared = serde_json::to_value(&admin.document).unwrap();
     assert!(declared["blocks"][0].get("filters").is_none());
 }
 
@@ -893,10 +901,8 @@ fn detail_cursors_are_bounded_and_need_cursor_path() {
 fn paged_detail_resolves_through_the_catalog_and_pages_admin_rows() {
     let mut manifest: Value =
         serde_json::from_slice(include_bytes!("fixtures/plugin-ui-v2-manifest.json")).unwrap();
-    for index in [0, 2] {
-        manifest["clientExtensions"]["contributions"][index]["detail"]["cursorPath"] =
-            json!("/nextCursor");
-    }
+    manifest["clientExtensions"]["contributions"][0]["detail"]["cursorPath"] = json!("/nextCursor");
+    manifest["admin"]["pages"][0]["detail"]["cursorPath"] = json!("/nextCursor");
     let manifest = PluginManifest::from_json(&serde_json::to_vec(&manifest).unwrap()).unwrap();
     let catalog = UiCatalog {
         tenant_id: "201".into(),
@@ -952,7 +958,7 @@ fn paged_detail_resolves_through_the_catalog_and_pages_admin_rows() {
         json!({"pollId": "p-1", "cursor": "v-2"})
     );
     // An admin row's detail input pages the same way.
-    let admin = manifest.contribution("example.poll.admin").unwrap();
+    let admin = manifest.admin.as_ref().unwrap().page("polls").unwrap();
     let page = admin.resolve(
         &json!({"items": [{"pollId": "p9", "question": "q", "status": "open"}]}),
         "",

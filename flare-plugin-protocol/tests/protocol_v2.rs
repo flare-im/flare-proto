@@ -174,9 +174,10 @@ fn staff_claims() -> PluginStaffCallClaims {
         configuration_digest: configuration_digest(&json!({})).unwrap(),
         staff_id: "staff-9".into(),
         org_id: Some("org-1".into()),
-        permission: "plugin:flare.poll:admin".into(),
+        permission: "plugin:flare.poll:manage".into(),
         operation: "flare.poll.list".into(),
         request_id: "req-1".into(),
+        reason: Some("清理违规投票".into()),
         issued_at_ms: 1000,
         expires_at_ms: 2000,
     }
@@ -221,7 +222,19 @@ fn staff_tickets_never_verify_as_user_tickets_and_bind_the_admin_permission() {
     assert_eq!(verifier.verify(&user_token, 1000).unwrap(), user);
     for bad in [
         PluginStaffCallClaims {
-            permission: "plugin:other.plugin:admin".into(),
+            permission: "plugin:other.plugin:manage".into(),
+            ..staff_claims()
+        },
+        PluginStaffCallClaims {
+            reason: Some("  ".into()),
+            ..staff_claims()
+        },
+        PluginStaffCallClaims {
+            reason: Some("a\nb".into()),
+            ..staff_claims()
+        },
+        PluginStaffCallClaims {
+            reason: Some("r".repeat(MAX_STAFF_REASON_BYTES + 1)),
             ..staff_claims()
         },
         PluginStaffCallClaims {
@@ -259,27 +272,18 @@ fn staff_tickets_never_verify_as_user_tickets_and_bind_the_admin_permission() {
             .is_ok(),
         "platform staff have no organization"
     );
-    assert_eq!(
-        plugin_admin_permission("flare.poll").as_deref(),
-        Some("plugin:flare.poll:admin")
-    );
-    assert_eq!(plugin_admin_permission(""), None);
-    assert_eq!(
-        plugin_admin_permission(&"p".repeat(115)).map(|c| c.len()),
-        Some(128)
-    );
-    assert_eq!(plugin_admin_permission(&"p".repeat(116)), None);
-    assert_eq!(
-        plugin_admin_target("plugin:flare.poll:admin"),
-        Some("flare.poll")
-    );
-    for code in [
-        "plugin::admin",
-        "plugin:a:b:admin",
-        "core:plugins:read",
-        "plugin:flare.poll",
-    ] {
-        assert_eq!(plugin_admin_target(code), None, "{code}");
+    // The reason is optional on the wire and round-trips when present.
+    for reason in [None, Some("r".repeat(MAX_STAFF_REASON_BYTES))] {
+        let claims = PluginStaffCallClaims {
+            reason: reason.clone(),
+            ..staff_claims()
+        };
+        let token = signer.sign_staff(&claims, 1000).unwrap();
+        assert_eq!(verifier.verify_staff(&token, 1000).unwrap().reason, reason);
+    }
+    assert!(valid_staff_reason("清理违规投票"));
+    for bad in ["", " ", "a\tb", "\u{7f}"] {
+        assert!(!valid_staff_reason(bad), "{bad:?}");
     }
 }
 

@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::manifest::{OperationMode, PluginManifest, RiskLevel, UninstallBehavior};
-use crate::ui::{UiActionTarget, UiDetail, UiDocument};
+use crate::ui::{ResolvedPluginView, UiActionTarget, UiDetail, UiDocument, resolve_document};
 use crate::{ProtocolError, Result};
 
 /// The only [`PluginAdmin::contract_version`].
@@ -179,6 +179,43 @@ pub struct AdminPage {
     /// `dashboard` only (`1..=12`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub widgets: Vec<AdminWidget>,
+}
+
+impl AdminPage {
+    /// The page resolved against its rows source result (`{}` before the
+    /// first read), the way the console's generic plugin renderer shows it.
+    pub fn resolve(&self, data: &Value, locale: &str, viewer: &str) -> ResolvedPluginView {
+        resolve_document(&self.document, data, locale, viewer, self.detail.as_ref())
+    }
+    /// The detail document resolved against one page of the detail operation's
+    /// result (with `nextCursor` while a paged detail has more).
+    pub fn resolve_detail(
+        &self,
+        data: &Value,
+        locale: &str,
+        viewer: &str,
+    ) -> Option<ResolvedPluginView> {
+        let detail = self.detail.as_ref()?;
+        let mut view = resolve_document(&detail.document, data, locale, viewer, None);
+        view.next_cursor = detail.next_cursor(data);
+        Some(view)
+    }
+    /// [`UiDocument::retain_targets`] over the document and the detail; the
+    /// detail is dropped when `keep` rejects its operation (an installation
+    /// that did not approve it).
+    pub fn retain_targets(&mut self, mut keep: impl FnMut(&UiActionTarget) -> bool) {
+        self.document.retain_targets(&mut keep);
+        if self.detail.as_ref().is_some_and(|detail| {
+            !keep(&UiActionTarget::Operation {
+                operation: detail.operation.clone(),
+            })
+        }) {
+            self.detail = None;
+        }
+        if let Some(detail) = &mut self.detail {
+            detail.document.retain_targets(&mut keep);
+        }
+    }
 }
 
 /// A dashboard widget from the kit's whitelist; never plugin code.

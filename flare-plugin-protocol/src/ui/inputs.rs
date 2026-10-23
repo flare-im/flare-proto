@@ -1,6 +1,6 @@
 //! Form inputs of a UI document (v2). A composer-action or card action names
-//! the inputs it collects in [`super::UiAction::form`]; an admin-page document's
-//! inputs are the filters sent to its rows source. The host renders the form,
+//! the inputs it collects in [`super::UiAction::form`]; the inputs of an admin
+//! page (`admin.pages`) are the filters sent to its rows source. The host renders the form,
 //! the core SDK validates it with [`validate_form_values`], and the plugin
 //! re-validates the same rules on its side.
 use super::{UiTranslation, translate, valid_name, valid_path, valid_text};

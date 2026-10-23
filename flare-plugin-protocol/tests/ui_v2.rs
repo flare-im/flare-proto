@@ -1,5 +1,5 @@
-//! UiDocument v2: blocks, inputs, forms, detail, audience, admin-page, state
-//! layers and resolution.
+//! UiDocument v2: blocks, inputs, forms, detail, audience, admin pages,
+//! state layers and resolution.
 use flare_plugin_protocol::{
     PluginManifest, ProtocolError,
     manifest::{ClientPlatform, UiContribution, UiContributionKind},
@@ -13,6 +13,10 @@ fn manifest() -> PluginManifest {
 }
 fn contribution(id: &str) -> UiContribution {
     manifest().contribution(id).unwrap().clone()
+}
+/// The fixture's console page (`admin.pages`).
+fn admin_page() -> flare_plugin_protocol::admin::AdminPage {
+    manifest().admin.unwrap().page("polls").unwrap().clone()
 }
 fn catalog() -> UiCatalog {
     let manifest = manifest();
@@ -91,8 +95,8 @@ fn v2_manifest_validates_and_round_trips() {
     assert_eq!(
         manifest.admin_operations().into_iter().collect::<Vec<_>>(),
         [
-            "example.poll.close",
-            "example.poll.details",
+            "example.poll.end",
+            "example.poll.inspect",
             "example.poll.list",
             "example.poll.remove"
         ]
@@ -101,12 +105,8 @@ fn v2_manifest_validates_and_round_trips() {
         contribution("example.poll.card").entity_of(&json!({"pollId": "p-1"})),
         Some("p-1".into())
     );
-    assert!(UiContributionKind::MessageContent.is_client_surface());
-    assert!(!UiContributionKind::AdminPage.is_client_surface());
-    assert_eq!(
-        serde_json::to_value(UiContributionKind::AdminPage).unwrap(),
-        json!("admin-page")
-    );
+    // Console pages live in the `admin` section, never among the contributions.
+    assert!(serde_json::from_value::<UiContributionKind>(json!("admin-page")).is_err());
 }
 
 #[test]
@@ -607,7 +607,7 @@ fn entries_and_people_blocks() {
 
 #[test]
 fn admin_page_rows_bind_row_actions_detail_and_cursor() {
-    let admin = contribution("example.poll.admin");
+    let admin = admin_page();
     let data = json!({
         "items": [
             {"pollId": "p1", "question": "午饭？", "status": "open", "createdAtMs": 1700000000000_i64},
@@ -668,9 +668,9 @@ fn admin_page_rows_bind_row_actions_detail_and_cursor() {
     );
     assert_eq!(rows.rows[1].cells[2].text, "");
     // Pages: filters plus the cursor; filters are validated like a form.
-    let block = admin.schema.rows().unwrap();
+    let block = admin.document.rows().unwrap();
     let filters = admin
-        .schema
+        .document
         .validate_inputs(&json!({"status": "open"}))
         .unwrap();
     assert_eq!(
@@ -688,7 +688,7 @@ fn admin_page_rows_bind_row_actions_detail_and_cursor() {
     );
     assert!(
         admin
-            .schema
+            .document
             .validate_inputs(&json!({"status": "paused"}))
             .is_err()
     );
@@ -768,7 +768,7 @@ fn contribution_kind_rules_for_v2_fields() {
             "{audience}"
         );
     }
-    // detail: message-content and admin-page, declared operation, no rows.
+    // detail: message-content only, declared operation, no rows.
     assert_eq!(
         rejected_field(edited(set(
             1,
@@ -795,69 +795,57 @@ fn contribution_kind_rules_for_v2_fields() {
         ))
         .is_err()
     );
-    // rows: admin-page only, declared source, one per page.
+    // rows: page documents only (console pages are the admin section's).
     let push_block = |index: usize, block: Value| {
         move |raw: &mut Value| {
-            raw["clientExtensions"]["contributions"][index]["schema"]["blocks"]
-                .as_array_mut()
-                .unwrap()
-                .push(block.clone())
+            let blocks = &mut raw["clientExtensions"]["contributions"][index]["schema"]["blocks"];
+            let mut list = blocks.as_array().cloned().unwrap_or_default();
+            list.push(block.clone());
+            *blocks = Value::Array(list);
         }
     };
-    assert_eq!(
-        rejected_field(edited(push_block(0, rows.clone()))),
-        "clientExtensions.blocks.rows"
-    );
-    assert_eq!(
-        rejected_field(edited(push_block(2, rows.clone()))),
-        "clientExtensions.blocks.rows"
-    );
-    assert_eq!(
-        rejected_field(edited(|raw| {
-            raw["clientExtensions"]["contributions"][2]["schema"]["blocks"][0]["source"] =
-                json!("example.poll.nope")
-        })),
-        "clientExtensions.blocks.rows.source"
-    );
-    // admin-page: operation targets only, `cursor` reserved, short plugin id.
-    assert_eq!(
-        rejected_field(edited(|raw| {
-            raw["clientExtensions"]["contributions"][2]["schema"]["inputs"][0]["id"] =
-                json!("cursor")
-        })),
-        "clientExtensions.inputs"
-    );
-    assert_eq!(
-        rejected_field(edited(|raw| {
-            raw["clientExtensions"]["nativeCapabilities"] = json!(["camera"]);
-            raw["clientExtensions"]["contributions"][2]["schema"]["actions"]
+    for index in [0, 1] {
+        assert_eq!(
+            rejected_field(edited(push_block(index, rows.clone()))),
+            "clientExtensions.blocks.rows"
+        );
+    }
+    // An admin page reads and acts through admin operations only, `cursor` is
+    // reserved, and every permission code fits 128 bytes.
+    let page = |edit: fn(&mut Value)| {
+        move |raw: &mut Value| edit(&mut raw["admin"]["pages"][0]["document"])
+    };
+    for edit in [
+        page(|d| d["blocks"][0]["source"] = json!("example.poll.nope")),
+        page(|d| d["blocks"][0]["source"] = json!("example.poll.details")),
+        page(|d| d["inputs"][0]["id"] = json!("cursor")),
+        page(|d| {
+            d["actions"]
                 .as_array_mut()
                 .unwrap()
                 .push(json!({"id": "snap", "label": "拍照", "target": {"kind": "native", "capability": "camera"}}))
-        })),
-        "clientExtensions.actions"
-    );
-    let long_id = format!("example.{}", "p".repeat(108));
-    assert_eq!(
-        rejected_field(edited(|raw| {
+        }),
+    ] {
+        assert_eq!(
+            rejected_field(edited(move |raw| {
+                raw["clientExtensions"]["nativeCapabilities"] = json!(["camera"]);
+                edit(raw)
+            })),
+            "admin"
+        );
+    }
+    let renamed = |id: String| {
+        move |raw: &mut Value| {
             let text = serde_json::to_string(raw)
                 .unwrap()
-                .replace("example.poll", &long_id);
+                .replace("example.poll", &id);
             *raw = serde_json::from_str(&text).unwrap();
-        })),
-        "pluginId"
-    );
-    // One byte shorter fits the 128-byte permission code.
-    let fits = format!("example.{}", "p".repeat(107));
-    assert!(
-        edited(|raw| {
-            let text = serde_json::to_string(raw)
-                .unwrap()
-                .replace("example.poll", &fits);
-            *raw = serde_json::from_str(&text).unwrap();
-        })
-        .is_ok()
-    );
+        }
+    };
+    // `plugin:` + id + `:manage` is 129 bytes; one byte shorter fits.
+    let long_id = format!("example.{}", "p".repeat(107));
+    assert_eq!(rejected_field(edited(renamed(long_id))), "admin");
+    assert!(edited(renamed(format!("example.{}", "p".repeat(106)))).is_ok());
 }
 
 #[test]
@@ -1341,24 +1329,32 @@ fn retain_targets_drops_actions_and_references_but_keeps_documents_valid() {
     });
     assert!(card.detail.is_none());
 
-    let mut admin = contribution("example.poll.admin");
+    let mut admin = admin_page();
     admin.retain_targets(|target| {
         !matches!(target, UiActionTarget::Operation { operation } if operation == "example.poll.remove")
     });
-    admin.schema.validate().unwrap();
-    assert_eq!(admin.schema.rows().unwrap().actions, ["close"]);
+    admin.document.validate().unwrap();
+    assert_eq!(admin.document.rows().unwrap().actions, ["close"]);
+    assert!(admin.detail.is_some());
+    admin.retain_targets(|target| {
+        !matches!(target, UiActionTarget::Operation { operation } if operation == "example.poll.inspect")
+    });
+    assert!(
+        admin.detail.is_none(),
+        "an unapproved detail operation drops the detail"
+    );
     admin.retain_targets(|target| {
         !matches!(target, UiActionTarget::Operation { operation } if operation == "example.poll.list")
     });
-    assert!(admin.schema.rows().is_none());
-    admin.schema.validate().unwrap();
+    assert!(admin.document.rows().is_none());
+    admin.document.validate().unwrap();
 }
 
 #[test]
 fn schema_export_describes_the_v2_contract() {
     let schema = serde_json::to_string(&schemars::schema_for!(PluginManifest)).unwrap();
     for needle in [
-        "admin-page",
+        "AdminPage",
         "entityPath",
         "forwardable",
         "audience",
@@ -1597,13 +1593,13 @@ fn block_conditions_read_the_merged_card_data() {
 #[test]
 fn rows_block_conditions_read_the_page_not_a_row() {
     let manifest = edited(|raw| {
-        raw["clientExtensions"]["contributions"][2]["schema"]["blocks"][0]["hiddenWhen"] = json!([
+        raw["admin"]["pages"][0]["document"]["blocks"][0]["hiddenWhen"] = json!([
             {"path": "/status", "anyOf": ["open"]},
             {"path": "/suspended", "anyOf": ["true"]}
         ])
     })
     .unwrap();
-    let admin = manifest.contribution("example.poll.admin").unwrap();
+    let admin = manifest.admin.as_ref().unwrap().page("polls").unwrap();
     let page = json!({"items": [{"pollId": "p1", "status": "open"}]});
     let view = admin.resolve(&page, "", "s");
     let ResolvedUiBlock::Rows(rows) = only_block(&view) else {
@@ -1719,11 +1715,11 @@ fn detail_hidden_when_removes_view_all_more_and_row_detail_input() {
     assert!(view.available && view.detail);
     // Admin page: conditions read the page; a hidden detail binds no row.
     let manifest = edited(|raw| {
-        raw["clientExtensions"]["contributions"][2]["detail"]["hiddenWhen"] =
+        raw["admin"]["pages"][0]["detail"]["hiddenWhen"] =
             json!([{"path": "/archived", "anyOf": ["true"]}])
     })
     .unwrap();
-    let admin = manifest.contribution("example.poll.admin").unwrap();
+    let admin = manifest.admin.as_ref().unwrap().page("polls").unwrap();
     let row_detail = |page: Value| {
         let view = admin.resolve(&page, "", "s");
         let ResolvedUiBlock::Rows(rows) = only_block(&view) else {

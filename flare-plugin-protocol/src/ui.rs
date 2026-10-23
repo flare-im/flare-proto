@@ -15,7 +15,10 @@
 //! versioned merge of [`UiStateLayers`]), grouped entries, menu actions
 //! ([`UiActionPlacement`]), account-entry summaries ([`UiEntrySummary`]),
 //! the envelope's `displayName`, and why a view is inert
-//! ([`UiUnavailableReason`]).
+//! ([`UiUnavailableReason`]). Pages add a data source with paging
+//! ([`UiPageSource`]) and rows on page documents; choices take a selection
+//! limit (`maxSelectionsPath`), entries and rows a badge per item
+//! ([`UiValueLabels`]).
 mod blocks;
 mod inputs;
 pub use blocks::*;
@@ -62,8 +65,9 @@ pub struct UiDocument {
     /// Display blocks, in order (`0..=24`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<UiBlock>,
-    /// Form inputs referenced by action forms, and admin-page filters (the
-    /// rows block's `filters`, or every input when it lists none) (`0..=16`).
+    /// Form inputs referenced by action forms, and the filters of the rows
+    /// block of a page or an admin page (`admin.pages`): its `filters`, or
+    /// every input when it lists none (`0..=16`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<UiInput>,
     #[serde(default)]
@@ -637,7 +641,8 @@ impl UiAudience {
     }
 }
 
-/// The "view all" document of a message-content or admin-page contribution.
+/// The "view all" document of a message-content contribution or of an admin
+/// page (`admin.pages`).
 /// The host invokes `operation` with `input` bound from the card data (or, on
 /// an admin page, from the row), then resolves `document` against the result
 /// `data` and shows it in a sheet. A detail document has no rows block and no
@@ -715,7 +720,7 @@ impl UiDetail {
         bounded_input(input)
     }
     /// The next-page cursor in a detail result `data`, when it is one.
-    fn next_cursor(&self, data: &Value) -> Option<String> {
+    pub(crate) fn next_cursor(&self, data: &Value) -> Option<String> {
         data.pointer(self.cursor_path.as_deref()?)
             .and_then(scalar_text)
             .filter(|cursor| valid_page_cursor(cursor))
@@ -724,6 +729,87 @@ impl UiDetail {
     /// `data` for `viewer`.
     pub fn is_hidden(&self, data: &Value, viewer: &str) -> bool {
         self.hidden_when.iter().any(|c| c.matches(data, viewer))
+    }
+}
+
+/// The data a `page` contribution is resolved against: the result `data` of
+/// a declared `query` operation. A page is opened with arguments, the input
+/// the opening action bound (a page target's payload; `{}` from an account
+/// entry). `input` names operation inputs and the JSON pointers into those
+/// arguments they are read from; one whose pointer finds nothing is left
+/// out, so an argument is optional.
+///
+/// Paging follows the detail convention ([`UiDetail`]): with `cursorPath`
+/// the resolved page carries `nextCursor`, the next page is requested with
+/// the same input plus `cursor` ([`Self::page_input`]) and appended with
+/// [`ResolvedPluginView::append_page`]. A page without a source resolves
+/// against its arguments.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiPageSource {
+    /// Wire operation declared by the plugin with `mode: "query"`.
+    pub operation: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub input: BTreeMap<String, String>,
+    /// The cursor of the next page in the result, as for a detail. When set,
+    /// `input` may not bind `cursor`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor_path: Option<String>,
+}
+impl UiPageSource {
+    pub fn validate(&self) -> Result<()> {
+        if self.operation.is_empty()
+            || self.operation.len() > 128
+            || !valid_bindings(&self.input)
+            || self.input.contains_key(DETAIL_CURSOR_INPUT)
+            || self
+                .cursor_path
+                .as_deref()
+                .is_some_and(|path| !valid_path(path))
+        {
+            return Err(ProtocolError::Denied("invalid UI page source"));
+        }
+        Ok(())
+    }
+    /// The first page's input: each declared input whose pointer finds a
+    /// value in `arguments`, plus `filters`, the validated filter values of
+    /// the page's rows block ([`UiDocument::validate_inputs`]). A filter may
+    /// not repeat an input name or `cursor`.
+    pub fn bind_input(&self, arguments: &Value, filters: Map<String, Value>) -> Result<Value> {
+        let mut input: Map<String, Value> = self
+            .input
+            .iter()
+            .filter_map(|(name, path)| Some((name.clone(), arguments.pointer(path)?.clone())))
+            .collect();
+        for (name, value) in filters {
+            if name == DETAIL_CURSOR_INPUT || input.contains_key(&name) {
+                return Err(ProtocolError::Denied("UI input collision"));
+            }
+            input.insert(name, value);
+        }
+        bounded_input(input)
+    }
+    /// The input of the page after `cursor` (a resolved page's `nextCursor`):
+    /// `bound`, the first page's input ([`Self::bind_input`]), plus `cursor`.
+    /// Only for a source with `cursorPath`.
+    pub fn page_input(&self, bound: Value, cursor: &str) -> Result<Value> {
+        let Value::Object(mut input) = bound else {
+            return Err(ProtocolError::Denied("invalid UI page request"));
+        };
+        if self.cursor_path.is_none()
+            || !valid_page_cursor(cursor)
+            || input.contains_key(DETAIL_CURSOR_INPUT)
+        {
+            return Err(ProtocolError::Denied("invalid UI page request"));
+        }
+        input.insert(DETAIL_CURSOR_INPUT.into(), Value::from(cursor));
+        bounded_input(input)
+    }
+    /// The next-page cursor in a source result `data`, when it is one.
+    fn next_cursor(&self, data: &Value) -> Option<String> {
+        data.pointer(self.cursor_path.as_deref()?)
+            .and_then(scalar_text)
+            .filter(|cursor| valid_page_cursor(cursor))
     }
 }
 
@@ -835,7 +921,7 @@ impl UiDocument {
         }
         Ok(())
     }
-    /// The rows block, if any (admin-page documents hold at most one).
+    /// The rows block, if any (page and admin page documents hold at most one).
     pub fn rows(&self) -> Option<&UiRowsBlock> {
         self.blocks.iter().find_map(|block| match block {
             UiBlock::Rows(rows) => Some(rows),
@@ -896,8 +982,9 @@ impl UiDocument {
             .collect();
         validate_form_values(&inputs.iter().collect::<Vec<_>>(), values)
     }
-    /// The admin-page filter inputs, in document order: those the rows block
-    /// lists in `filters`, or every input when it declares no `filters`.
+    /// The filter inputs of the rows block (admin page or page), in document
+    /// order: those it lists in `filters`, or every input when it declares no
+    /// `filters`.
     pub fn filter_inputs(&self) -> Vec<&UiInput> {
         match self.rows().and_then(|rows| rows.filters.as_ref()) {
             Some(filters) => self
@@ -908,7 +995,7 @@ impl UiDocument {
             None => self.inputs.iter().collect(),
         }
     }
-    /// Validate admin-page filter values: the [`Self::filter_inputs`] only. A
+    /// Validate rows filter values: the [`Self::filter_inputs`] only. A
     /// value for any other input (a row action's form) is `unknown` here.
     pub fn validate_inputs(
         &self,
@@ -1217,20 +1304,41 @@ impl ResolvedPluginView {
     /// in the group this view ends with continues it: that first header is
     /// dropped (its count and total update the shown header) and its entries
     /// are numbered on within the group; a page starting a new group numbers
-    /// from 1 as resolved. Everything else (title, fields, actions, menu,
-    /// inputs, other blocks) stays as on the first page; `nextCursor` becomes
-    /// the page's. An unavailable view or page ends paging without changing
-    /// the entries.
+    /// from 1 as resolved. Rows blocks (a page's) pair up the same way: the
+    /// page's rows follow, a row whose key is already shown is dropped, and
+    /// the block's `nextCursor` becomes the page's. Everything else (title,
+    /// fields, actions, menu, inputs, other blocks) stays as on the first
+    /// page; `nextCursor` becomes the page's. An unavailable view or page
+    /// ends paging without changing the entries or rows.
     pub fn append_page(&mut self, page: ResolvedPluginView) {
         if !self.available || !page.available {
             self.next_cursor = None;
             return;
         }
         self.next_cursor = page.next_cursor;
-        let mut pages = page.blocks.into_iter().filter_map(|block| match block {
-            ResolvedUiBlock::Entries(entries) => Some(entries),
-            _ => None,
-        });
+        let (mut entry_pages, mut row_pages) = (Vec::new(), Vec::new());
+        for block in page.blocks {
+            match block {
+                ResolvedUiBlock::Entries(entries) => entry_pages.push(entries),
+                ResolvedUiBlock::Rows(rows) => row_pages.push(rows),
+                _ => {}
+            }
+        }
+        let mut row_pages = row_pages.into_iter();
+        for block in &mut self.blocks {
+            if let ResolvedUiBlock::Rows(rows) = block
+                && let Some(next) = row_pages.next()
+            {
+                let shown: BTreeSet<String> = rows.rows.iter().map(|r| r.key.clone()).collect();
+                rows.rows.extend(
+                    next.rows
+                        .into_iter()
+                        .filter(|row| !shown.contains(&row.key)),
+                );
+                rows.next_cursor = next.next_cursor;
+            }
+        }
+        let mut pages = entry_pages.into_iter();
         for block in &mut self.blocks {
             let ResolvedUiBlock::Entries(entries) = block else {
                 continue;
@@ -1328,7 +1436,7 @@ pub(crate) fn resolve_action(action: &UiAction, translation: Option<&UiTranslati
     action.confirm = action.confirm.map(|text| translate(translation, &text));
     action
 }
-fn resolve_document(
+pub(crate) fn resolve_document(
     document: &UiDocument,
     data: &Value,
     locale: &str,
@@ -1397,8 +1505,8 @@ fn resolve_document(
 }
 impl UiContribution {
     /// Resolve the contribution's document against `data`: the merged card data
-    /// ([`UiStateLayers::merge`]), a composer form's [`composer_data`], or an
-    /// admin page's source result.
+    /// ([`UiStateLayers::merge`]), a composer form's [`composer_data`], or a
+    /// page's source result.
     pub fn resolve(&self, data: &Value, locale: &str, viewer: &str) -> ResolvedPluginView {
         resolve_document(&self.schema, data, locale, viewer, self.detail.as_ref())
     }
@@ -1413,6 +1521,24 @@ impl UiContribution {
         let detail = self.detail.as_ref()?;
         let mut view = resolve_document(&detail.document, data, locale, viewer, None);
         view.next_cursor = detail.next_cursor(data);
+        Some(view)
+    }
+    /// Resolve a `page` contribution's document against `data`: its source
+    /// result (one page of it, for a paged source: the view then has
+    /// `nextCursor`), or its arguments when it declares no source. A page
+    /// has no detail, so its entries report no `more` and its rows carry no
+    /// `detailInput`. `None` for any other kind.
+    pub fn resolve_page(
+        &self,
+        data: &Value,
+        locale: &str,
+        viewer: &str,
+    ) -> Option<ResolvedPluginView> {
+        if self.kind != UiContributionKind::Page {
+            return None;
+        }
+        let mut view = resolve_document(&self.schema, data, locale, viewer, None);
+        view.next_cursor = self.source.as_ref().and_then(|s| s.next_cursor(data));
         Some(view)
     }
     /// [`UiDocument::retain_targets`] over the document and the detail; the
@@ -1435,15 +1561,26 @@ impl ResolvedPluginView {
     /// The inert view of `message`: its summary as the title (inert text, never
     /// a source of actions) and `reason`.
     pub fn unavailable(message: &PluginMessage, reason: UiUnavailableReason) -> Self {
-        Self {
-            available: false,
-            unavailable_reason: Some(reason),
-            title: message
+        Self::inert(
+            message
                 .summary
                 .chars()
                 .filter(|c| !c.is_control())
                 .take(256)
                 .collect(),
+            reason,
+        )
+    }
+    /// The inert view of a page that cannot be shown: no content, an empty
+    /// title (the host keeps its own page title) and `reason`.
+    pub fn unavailable_page(reason: UiUnavailableReason) -> Self {
+        Self::inert(String::new(), reason)
+    }
+    fn inert(title: String, reason: UiUnavailableReason) -> Self {
+        Self {
+            available: false,
+            unavailable_reason: Some(reason),
+            title,
             fields: vec![],
             actions: vec![],
             menu_actions: vec![],
@@ -1678,6 +1815,60 @@ impl UiCatalog {
             return Err(ProtocolError::Denied("UI operation unavailable"));
         }
         Ok(detail.clone())
+    }
+    /// The `page` contribution `page` of `plugin_id` with its plugin, or why
+    /// it cannot be shown in `context` (its `kind` is ignored):
+    /// - another tenant, or a plugin in neither `plugins` nor `unavailable`:
+    ///   `not_installed`; a plugin in `unavailable`: its reason;
+    /// - an expired catalog: `catalog_unreachable`;
+    /// - a plugin that does not list the platform: `unsupported_platform`;
+    /// - no such page, another schema version or an invalid document or
+    ///   source: `incompatible_version`;
+    /// - a source operation the catalog does not offer the viewer:
+    ///   `no_permission`.
+    ///
+    /// Like [`Self::detail`] this checks declaration only; Core authorizes
+    /// the source call.
+    pub fn page(
+        &self,
+        plugin_id: &str,
+        page: &str,
+        context: &UiRenderContext<'_>,
+    ) -> std::result::Result<(&ClientPlugin, &UiContribution), UiUnavailableReason> {
+        if self.tenant_id != context.tenant {
+            return Err(UiUnavailableReason::NotInstalled);
+        }
+        if self.valid_until_ms <= context.now_ms {
+            return Err(UiUnavailableReason::CatalogUnreachable);
+        }
+        let Some(plugin) = self.plugins.iter().find(|p| p.plugin_id == plugin_id) else {
+            return Err(self
+                .unavailable
+                .iter()
+                .find(|p| p.plugin_id == plugin_id)
+                .map_or(UiUnavailableReason::NotInstalled, |p| p.reason));
+        };
+        if !plugin.extensions.platforms.contains(&context.platform) {
+            return Err(UiUnavailableReason::UnsupportedPlatform);
+        }
+        let contribution = plugin
+            .extensions
+            .contributions
+            .iter()
+            .find(|c| c.id == page && c.kind == UiContributionKind::Page && c.schema_version == 1)
+            .filter(|c| {
+                c.schema.validate().is_ok()
+                    && c.source.as_ref().is_none_or(|s| s.validate().is_ok())
+            })
+            .ok_or(UiUnavailableReason::IncompatibleVersion)?;
+        if contribution
+            .source
+            .as_ref()
+            .is_some_and(|source| !plugin.operations.contains(&source.operation))
+        {
+            return Err(UiUnavailableReason::NoPermission);
+        }
+        Ok((plugin, contribution))
     }
 }
 

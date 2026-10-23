@@ -86,9 +86,10 @@ fn system_tickets_verify_only_as_system_tickets() {
         configuration_digest: claims.configuration_digest.clone(),
         staff_id: "staff-1".into(),
         org_id: None,
-        permission: "plugin:flare.poll:admin".into(),
+        permission: "plugin:flare.poll:manage".into(),
         operation: "flare.poll.admin.close".into(),
         request_id: "req-3".into(),
+        reason: None,
         issued_at_ms: 1000,
         expires_at_ms: 2000,
     };
@@ -785,7 +786,6 @@ fn account_entries_hold_one_page_action_and_an_optional_query_summary() {
     let manifest = parse(&with_entry(account_entry())).unwrap();
     let entry = manifest.contribution("example.poll.wallet-entry").unwrap();
     assert_eq!(entry.kind, UiContributionKind::AccountEntry);
-    assert!(entry.kind.is_client_surface());
     assert_eq!(entry.schema.localized_title("en-US"), "Wallet");
     assert_eq!(
         serde_json::to_value(entry.kind).unwrap(),
@@ -1067,10 +1067,11 @@ fn staff_tickets_carry_the_admin_permission_of_their_plugin() {
         permission: permission.into(),
         operation: "flare.poll.admin.close".into(),
         request_id: "req-1".into(),
+        reason: None,
         issued_at_ms: 1000,
         expires_at_ms: 2000,
     };
-    for ok in ["plugin:flare.poll:manage", "plugin:flare.poll:admin"] {
+    for ok in ["plugin:flare.poll:manage", "plugin:flare.poll:read"] {
         assert!(signer.sign_staff(&staff(ok), 1000).is_ok(), "{ok}");
     }
     for bad in [

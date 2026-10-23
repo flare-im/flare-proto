@@ -6,7 +6,7 @@
 //! domain, so none verifies as another:
 //! - [`PluginCallClaims`]: Core → plugin, a user invoked an operation;
 //! - [`PluginStaffCallClaims`]: Core → plugin, a tenant staff member invoked an
-//!   admin-page operation from the console (`dispatch_admin`);
+//!   admin operation (`admin.operations`) from the console (`dispatch_admin`);
 //! - [`PluginSystemCallClaims`]: Core → plugin, the platform itself calls a
 //!   platform callback of the plugin (the entity lifecycle `unbound`), with no
 //!   user or staff behind it;
@@ -23,22 +23,16 @@ pub const PLUGIN_RUNTIME_HEADER: &str = "x-flare-plugin-runtime";
 pub const MAX_CALL_TTL_MS: i64 = 120_000;
 pub const MAX_RUNTIME_CALL_TTL_MS: i64 = 60_000;
 /// Permission codes are at most 128 bytes across the signed context, the
-/// platform permission catalog and audit, so an admin-page plugin id is at most
-/// 115 bytes (`plugin:` + id + `:admin`).
+/// platform permission catalog and audit (`plugin:` + plugin id + `:` +
+/// permission id, see [`plugin_permission`]).
 pub const MAX_PERMISSION_CODE_BYTES: usize = 128;
+/// Bytes of the operator's stated reason a staff ticket carries.
+pub const MAX_STAFF_REASON_BYTES: usize = 512;
 
 const CALL_DOMAIN: &str = "flare.plugin.call.v1";
 const STAFF_CALL_DOMAIN: &str = "flare.plugin.staff-call.v1";
 const SYSTEM_CALL_DOMAIN: &str = "flare.plugin.system-call.v1";
 const RUNTIME_DOMAIN: &str = "flare.plugin.runtime.v1";
-
-/// The staff permission code that authorizes the admin operations of
-/// `plugin_id`: `plugin:<pluginId>:admin`. `None` when it would exceed
-/// [`MAX_PERMISSION_CODE_BYTES`].
-pub fn plugin_admin_permission(plugin_id: &str) -> Option<String> {
-    let code = format!("plugin:{plugin_id}:admin");
-    (!plugin_id.is_empty() && code.len() <= MAX_PERMISSION_CODE_BYTES).then_some(code)
-}
 
 /// The staff permission code of the admin permission `permission` (an
 /// [`crate::admin::AdminPermission`] id) of `plugin_id`:
@@ -60,13 +54,6 @@ pub fn plugin_permission_target(code: &str) -> Option<(&str, &str)> {
     let (plugin_id, permission) = code.strip_prefix("plugin:")?.rsplit_once(':')?;
     (plugin_permission(plugin_id, permission).as_deref() == Some(code))
         .then_some((plugin_id, permission))
-}
-
-/// The plugin id of a `plugin:<pluginId>:admin` permission code.
-pub fn plugin_admin_target(permission: &str) -> Option<&str> {
-    let id = permission.strip_prefix("plugin:")?.strip_suffix(":admin")?;
-    (!id.is_empty() && permission.len() <= MAX_PERMISSION_CODE_BYTES && !id.contains(':'))
-        .then_some(id)
 }
 
 fn bounded_ids(values: &[&str]) -> bool {
@@ -137,13 +124,13 @@ impl PluginCallClaims {
 /// Ticket for an admin operation invoked by a tenant staff member. Core signs
 /// it only after it verified a `Staff` signed context for exactly this tenant
 /// holding `permission`, a [`plugin_permission`] code of this plugin (the
-/// permission the operation declares in the manifest's `admin` section, or
-/// [`plugin_admin_permission`] for an admin-page operation), and only for an
-/// operation in [`crate::PluginManifest::admin_operations`]. The plugin
-/// verifies it with [`PluginCallVerifier::verify_staff`], checks that
-/// `permission` is the one its manifest declares for `operation`, and still
-/// applies its own rules. It carries no conversation: admin work is
-/// tenant-scoped and names its entity in the input.
+/// permission the operation declares in the manifest's `admin` section), and
+/// only for an operation in [`crate::PluginManifest::admin_operations`]. The
+/// plugin verifies it with [`PluginCallVerifier::verify_staff`], checks that
+/// `permission` is the one its manifest declares for `operation` and that an
+/// operation declaring `requiresReason` carries `reason`, and still applies
+/// its own rules. It carries no conversation: admin work is tenant-scoped and
+/// names its entity in the input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginStaffCallClaims {
@@ -164,8 +151,20 @@ pub struct PluginStaffCallClaims {
     pub permission: String,
     pub operation: String,
     pub request_id: String,
+    /// The reason the staff member stated for this call, as the gateway signed
+    /// it into the staff context (`1..=512` bytes, no control characters).
+    /// Core requires it for an operation declaring `requiresReason`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub issued_at_ms: i64,
     pub expires_at_ms: i64,
+}
+/// Whether `reason` is a stated reason a staff ticket may carry: not blank, at
+/// most [`MAX_STAFF_REASON_BYTES`] bytes, no control characters.
+pub fn valid_staff_reason(reason: &str) -> bool {
+    !reason.trim().is_empty()
+        && reason.len() <= MAX_STAFF_REASON_BYTES
+        && !reason.chars().any(char::is_control)
 }
 impl PluginStaffCallClaims {
     pub fn validate(&self, now_ms: i64) -> Result<()> {
@@ -181,6 +180,10 @@ impl PluginStaffCallClaims {
         ]) || self.tenant_id == "*"
             || self.grant_revision == 0
             || self.org_id.as_deref().is_some_and(|id| !bounded_ids(&[id]))
+            || self
+                .reason
+                .as_deref()
+                .is_some_and(|reason| !valid_staff_reason(reason))
             || plugin_permission_target(&self.permission)
                 .is_none_or(|(plugin_id, _)| plugin_id != self.plugin_id)
             || !lifetime_ok(

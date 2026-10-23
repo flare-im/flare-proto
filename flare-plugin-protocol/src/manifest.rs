@@ -236,8 +236,8 @@ pub struct UiContribution {
     /// plugin still authorizes every invocation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audience: Option<crate::ui::UiAudience>,
-    /// message-content and admin-page: the "view all" document and the
-    /// operation that returns its data.
+    /// message-content only: the "view all" document and the operation that
+    /// returns its data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<crate::ui::UiDetail>,
     /// message-content only: the viewer's own layer of the card, read in the
@@ -257,6 +257,11 @@ pub struct UiContribution {
     /// demand; listing entries never calls it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<crate::ui::UiEntrySummary>,
+    /// page only: the `query` operation whose result the page document is
+    /// resolved against, its input bound from the page arguments, and its
+    /// paging (see [`crate::ui::UiPageSource`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::ui::UiPageSource>,
 }
 
 /// What Core tells a plugin about the card bound to one of its entities.
@@ -336,16 +341,6 @@ pub enum UiContributionKind {
     /// contribution of the same plugin. `icon` and `order` place it; an
     /// optional `summary` names a `query` whose result gives a subtitle.
     AccountEntry,
-    /// Console management page for tenant staff, rendered from the same
-    /// document model. Never part of the client catalog; its operations are
-    /// invoked through Core `dispatch_admin` with a staff ticket.
-    AdminPage,
-}
-impl UiContributionKind {
-    /// Whether the contribution belongs in the catalog served to user clients.
-    pub fn is_client_surface(self) -> bool {
-        !matches!(self, Self::AdminPage)
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -694,22 +689,19 @@ impl PluginManifest {
     }
 
     /// Operations the client contributions use: action targets, rows sources,
-    /// details, viewer states, summaries and entity lifecycle callbacks of
-    /// every client-surface contribution. No admin operation may be one of
-    /// them.
+    /// details, viewer states, summaries, page sources and entity lifecycle
+    /// callbacks of every contribution. No admin operation may be one of them.
     pub fn client_operation_refs(&self) -> BTreeSet<String> {
         use crate::ui::UiActionTarget;
         let mut operations = BTreeSet::new();
         for contribution in &self.client_extensions.contributions {
-            if !contribution.kind.is_client_surface() {
-                continue;
-            }
             operations.extend(
                 [
                     contribution.detail.as_ref().map(|d| &d.operation),
                     contribution.viewer_state.as_ref().map(|v| &v.operation),
                     contribution.summary.as_ref().map(|s| &s.operation),
                     contribution.entity_lifecycle.as_ref().map(|l| &l.unbound),
+                    contribution.source.as_ref().map(|s| &s.operation),
                 ]
                 .into_iter()
                 .flatten()
@@ -751,14 +743,13 @@ impl PluginManifest {
 
     /// Contribution-kind rules for the v2 fields: entity binding, forwarding,
     /// viewer state and entity lifecycle on message-content, audience on
-    /// composer-action, detail on message-content and admin-page, the single
-    /// page action and summary of account-entry, rows and staff permission on
-    /// admin-page.
+    /// composer-action, detail on message-content, the single page action and
+    /// summary of account-entry, the source of a page, rows on page documents
+    /// (console pages live in the manifest's `admin` section).
     fn validate_contribution_surface(&self, contribution: &UiContribution) -> Result<()> {
         use crate::ui::UiActionTarget;
         let kind = contribution.kind;
         let message_content = kind == UiContributionKind::MessageContent;
-        let admin_page = kind == UiContributionKind::AdminPage;
         ensure(
             contribution
                 .entity_path
@@ -782,9 +773,9 @@ impl PluginManifest {
         }
         if let Some(detail) = &contribution.detail {
             ensure(
-                message_content || admin_page,
+                message_content,
                 "clientExtensions.contributions.detail",
-                "message-content and admin-page only",
+                "message-content only",
             )?;
             detail.validate()?;
             ensure(
@@ -850,42 +841,47 @@ impl PluginManifest {
                 "must be a declared query operation",
             )?;
         }
+        let page = kind == UiContributionKind::Page;
+        if let Some(source) = &contribution.source {
+            ensure(page, "clientExtensions.contributions.source", "page only")?;
+            source.validate()?;
+            ensure(
+                self.operation(&source.operation)
+                    .is_some_and(|op| op.mode == OperationMode::Query),
+                "clientExtensions.contributions.source.operation",
+                "must be a declared query operation",
+            )?;
+            ensure(
+                contribution.schema.rows().is_none()
+                    || contribution.schema.filter_inputs().iter().all(|input| {
+                        input.id != crate::ui::DETAIL_CURSOR_INPUT
+                            && !source.input.contains_key(&input.id)
+                    }),
+                "clientExtensions.inputs",
+                "a page filter input may not repeat a source input name or `cursor`",
+            )?;
+        }
         let documents = std::iter::once(&contribution.schema)
             .chain(contribution.detail.as_ref().map(|detail| &detail.document));
         for (index, document) in documents.enumerate() {
             let rows = document.rows_sources().count();
             ensure(
-                rows == 0 || (admin_page && index == 0 && rows == 1),
+                rows == 0 || (page && index == 0 && rows == 1),
                 "clientExtensions.blocks.rows",
-                "one rows block, on the admin-page document only",
+                "one rows block, on a page document only",
             )?;
         }
-        if admin_page {
+        if page && let Some(rows) = contribution.schema.rows() {
+            // A page's rows are its source's data and page with it.
             ensure(
-                crate::invocation::plugin_admin_permission(&self.plugin_id).is_some(),
-                "pluginId",
-                "admin-page requires a plugin id of at most 115 bytes",
+                contribution
+                    .source
+                    .as_ref()
+                    .is_some_and(|source| source.operation == rows.source)
+                    && rows.cursor_path.is_none(),
+                "clientExtensions.blocks.rows",
+                "page rows read the page source and page with its cursorPath",
             )?;
-            for document in std::iter::once(&contribution.schema)
-                .chain(contribution.detail.as_ref().map(|detail| &detail.document))
-            {
-                ensure(
-                    document
-                        .actions
-                        .iter()
-                        .all(|a| matches!(a.target, UiActionTarget::Operation { .. })),
-                    "clientExtensions.actions",
-                    "admin-page actions target operations only",
-                )?;
-                ensure(
-                    document
-                        .inputs
-                        .iter()
-                        .all(|input| input.id != crate::ui::ROWS_CURSOR_INPUT),
-                    "clientExtensions.inputs",
-                    "admin-page input id `cursor` is reserved",
-                )?;
-            }
         }
         Ok(())
     }
@@ -898,53 +894,21 @@ impl PluginManifest {
     }
 
     /// Wire operations staff may invoke through `dispatch_admin`: the
-    /// `admin.operations`, and the targets, rows sources and detail
-    /// operations of the admin-page contributions.
+    /// `admin.operations`.
     pub fn admin_operations(&self) -> BTreeSet<String> {
-        use crate::ui::UiActionTarget;
-        let mut operations = self
-            .admin
+        self.admin
             .as_ref()
             .map(crate::admin::PluginAdmin::operation_ids)
-            .unwrap_or_default();
-        for contribution in &self.client_extensions.contributions {
-            if contribution.kind != UiContributionKind::AdminPage {
-                continue;
-            }
-            if let Some(detail) = &contribution.detail {
-                operations.insert(detail.operation.clone());
-            }
-            for document in std::iter::once(&contribution.schema)
-                .chain(contribution.detail.as_ref().map(|detail| &detail.document))
-            {
-                operations.extend(document.rows_sources().map(str::to_owned));
-                operations.extend(document.actions.iter().filter_map(|a| match &a.target {
-                    UiActionTarget::Operation { operation } => Some(operation.clone()),
-                    _ => None,
-                }));
-            }
-        }
-        operations
+            .unwrap_or_default()
     }
 
     /// The staff permission code a staff ticket for the admin `operation`
     /// carries: the [`crate::invocation::plugin_permission`] code of the
-    /// permission its `admin.operations` entry declares, else, for an
-    /// operation of an admin-page contribution,
-    /// [`crate::invocation::plugin_admin_permission`]. `None` for any other
+    /// permission its `admin.operations` entry declares. `None` for any other
     /// operation.
     pub fn admin_permission_for(&self, operation: &str) -> Option<String> {
-        if let Some(declared) = self
-            .admin
-            .as_ref()
-            .and_then(|admin| admin.operation(operation))
-        {
-            return crate::invocation::plugin_permission(&self.plugin_id, &declared.permission);
-        }
-        self.admin_operations()
-            .contains(operation)
-            .then(|| crate::invocation::plugin_admin_permission(&self.plugin_id))
-            .flatten()
+        let declared = self.admin.as_ref()?.operation(operation)?;
+        crate::invocation::plugin_permission(&self.plugin_id, &declared.permission)
     }
 
     /// The subset of a tenant configuration that clients receive with the

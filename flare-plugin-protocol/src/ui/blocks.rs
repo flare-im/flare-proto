@@ -3,9 +3,10 @@
 //! Every path is a JSON pointer in the `valid_path` style (`/a/b/0`, segments
 //! `[A-Za-z0-9_]`, at most 128 bytes). Top-level paths read the data the
 //! document is resolved against: the merged card data (payload ← shared state
-//! ← local state) for message-content, the source result for admin-page, the
-//! detail result for a detail document. Paths named `*Path` inside an option,
-//! entry, row or column read that element instead. A block whose data is
+//! ← local state) for message-content, the source result for a page and an
+//! admin page (`admin.pages`), the detail result for a detail document. Paths
+//! named `*Path` inside an option, entry, row or column read that element
+//! instead. A block whose data is
 //! missing is not shown: a card says what it knows.
 //!
 //! Every block may also carry `hiddenWhen` (`0..=4` [`UiCondition`]s, like an
@@ -82,7 +83,7 @@ pub enum UiBlock {
     Time(UiTimeBlock),
     Divider(UiDividerBlock),
     Note(UiNoteBlock),
-    /// admin-page only.
+    /// Page and admin page (`admin.pages`) documents only.
     Rows(UiRowsBlock),
 }
 
@@ -186,6 +187,11 @@ pub struct UiChoicesBlock {
     /// Truthy (true, non-zero, "true") for a multiple choice; single otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multiple_path: Option<String>,
+    /// A multiple choice's limit: the most options the viewer may choose, a
+    /// positive integer (capped at the option count). Absent, zero or not a
+    /// number: no limit beyond the options. Ignored on a single choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_selections_path: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub show_results: UiShowResults,
     /// Closed when any condition matches (`0..=4`): results shown per
@@ -282,9 +288,25 @@ pub struct UiEntriesBlock {
     /// non-negative integer. Requires `groupPath`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_total_path: Option<String>,
+    /// A badge for each entry: an enumerated value inside the entry mapped to
+    /// a label and a tone (a ledger line's kind).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_labels: Option<UiValueLabels>,
     /// Not shown when any condition (`0..=4`) matches the resolved data.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden_when: Vec<UiCondition>,
+}
+
+/// Labels for an enumerated value inside each entry or row, shown as that
+/// item's badge: the scalar at `path` (inside the item) mapped to a label,
+/// translated through `texts`, and a tone. An unmapped value is shown as
+/// sent, neutral, as in a status block; an item without a value has no
+/// badge. `1..=32` values, keys `1..=64` bytes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiValueLabels {
+    pub path: String,
+    pub values: BTreeMap<String, UiStatusValue>,
 }
 
 /// Avatar stacks with counts, optionally grouped by status (confirmed and not
@@ -415,11 +437,14 @@ pub struct UiColumn {
     pub format: UiColumnFormat,
 }
 
-/// The admin list. The host calls `source` with the filter values plus
-/// `cursor` (empty for the first page), resolves the document against the
-/// result, and pages with the cursor at `cursorPath` until it is empty or
-/// absent. The filters are the inputs listed in `filters`, or every document
-/// input when `filters` is absent; the other inputs belong to action forms.
+/// A list of rows. On an admin page the host calls `source` with the filter
+/// values plus `cursor` (empty for the first page), resolves the document
+/// against the result, and pages with the cursor at `cursorPath` until it is
+/// empty or absent. On a page `source` is the page's source operation and the
+/// rows page with the page ([`super::UiPageSource`]; no `cursorPath` of their
+/// own); filter values join the source input. The filters are the inputs
+/// listed in `filters`, or every document input when `filters` is absent; the
+/// other inputs belong to action forms.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UiRowsBlock {
@@ -443,6 +468,10 @@ pub struct UiRowsBlock {
     /// every input is a filter; `[]`: none is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filters: Option<Vec<String>>,
+    /// A badge for each row, as for entries ([`UiValueLabels`], read inside
+    /// the row).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_labels: Option<UiValueLabels>,
     /// Not shown when any condition matches (`0..=4`). Unlike the row
     /// actions' conditions these read the page (the source result), not a row.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -493,6 +522,10 @@ pub struct ResolvedUiChoices {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
     pub input_name: String,
+    /// A multiple choice's limit (`1..=` option count), when the block
+    /// declares one: kits stop further ticks at it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_selections: Option<u32>,
     /// The submit action, present while the viewer can choose (not closed, not
     /// hidden).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -541,6 +574,16 @@ pub struct ResolvedUiEntry {
     /// header kits render before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<ResolvedUiEntryGroup>,
+    /// The entry's badge, from the block's `valueLabels`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<ResolvedUiBadge>,
+}
+/// An item's enumerated value as words and a tone ([`UiValueLabels`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolvedUiBadge {
+    pub text: String,
+    pub tone: UiTone,
 }
 /// The header of a group of entries ("Option A · 5 votes · 42%").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -676,6 +719,9 @@ pub struct ResolvedUiRow {
     /// contribution declares a detail and the row binds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail_input: Option<Value>,
+    /// The row's badge, from the block's `valueLabels`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<ResolvedUiBadge>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -707,6 +753,16 @@ fn valid_value_labels(values: &BTreeMap<String, String>) -> bool {
         && values
             .iter()
             .all(|(value, label)| !value.is_empty() && value.len() <= 64 && valid_text(label))
+}
+fn valid_item_labels(labels: &Option<UiValueLabels>) -> bool {
+    labels.as_ref().is_none_or(|labels| {
+        valid_path(&labels.path)
+            && !labels.values.is_empty()
+            && labels.values.len() <= MAX_UI_VALUE_LABELS
+            && labels.values.iter().all(|(value, mapped)| {
+                !value.is_empty() && value.len() <= 64 && valid_text(&mapped.label)
+            })
+    })
 }
 fn operation_action<'a>(actions: &'a [UiAction], id: &str) -> Option<&'a UiAction> {
     actions
@@ -784,6 +840,7 @@ impl UiBlock {
                         &b.selected_path,
                         &b.total_path,
                         &b.multiple_path,
+                        &b.max_selections_path,
                     ]
                     .into_iter()
                     .all(optional_path)
@@ -819,6 +876,7 @@ impl UiBlock {
                     && b.limit
                         .is_none_or(|n| (1..=MAX_UI_ENTRIES_LIMIT).contains(&n))
                     && optional_text(&b.empty_text)
+                    && valid_item_labels(&b.value_labels)
             }
             Self::People(b) => {
                 !b.groups.is_empty()
@@ -872,6 +930,7 @@ impl UiBlock {
                                 seen.insert(id) && inputs.iter().any(|input| &input.id == id)
                             })
                     })
+                    && valid_item_labels(&b.value_labels)
             }
         };
         if ok && valid_conditions(self.hidden_when()) {
@@ -960,6 +1019,25 @@ fn literal_or_path(
 }
 fn label(scope: &Scope<'_>, text: &Option<String>) -> Option<String> {
     text.as_deref().map(|t| translate(scope.translation, t))
+}
+/// The badge of an entry or row `item` ([`UiValueLabels`]).
+fn badge(
+    labels: &Option<UiValueLabels>,
+    item: &Value,
+    translation: Option<&UiTranslation>,
+) -> Option<ResolvedUiBadge> {
+    let labels = labels.as_ref()?;
+    let raw = non_blank(item.pointer(&labels.path))?;
+    Some(match labels.values.get(&raw) {
+        Some(mapped) => ResolvedUiBadge {
+            text: translate(translation, &mapped.label),
+            tone: mapped.tone,
+        },
+        None => ResolvedUiBadge {
+            text: raw,
+            tone: UiTone::Neutral,
+        },
+    })
 }
 fn visible(action: &UiAction, data: &Value, viewer: &str) -> bool {
     !action.hidden_when.iter().any(|c| c.matches(data, viewer))
@@ -1099,6 +1177,16 @@ impl UiChoicesBlock {
         at(data, &self.multiple_path).is_some_and(truthy)
     }
 
+    /// The most options a multiple choice over `options` options takes, when
+    /// the block declares a positive limit.
+    fn max_selections(&self, data: &Value, options: usize) -> Option<u32> {
+        if !self.multiple(data) {
+            return None;
+        }
+        let max = at(data, &self.max_selections_path).and_then(as_count)?;
+        (max > 0).then(|| max.min(options as u64) as u32)
+    }
+
     fn resolve(&self, scope: &Scope<'_>) -> Option<ResolvedUiChoices> {
         let labels = self.labels(scope.data, scope.translation)?;
         let counts: Vec<u64> = at(scope.data, &self.counts_path)
@@ -1124,6 +1212,7 @@ impl UiChoicesBlock {
         let total = at(scope.data, &self.total_path)
             .and_then(as_count)
             .unwrap_or_else(|| (0..labels.len()).map(count_of).fold(0, u64::saturating_add));
+        let max_selections = self.max_selections(scope.data, labels.len());
         let options = labels
             .into_iter()
             .enumerate()
@@ -1150,13 +1239,15 @@ impl UiChoicesBlock {
             show_results,
             total: show_results.then_some(total),
             input_name: self.input_name().to_owned(),
+            max_selections,
             action,
         })
     }
 
     /// The action input entry for a selection on a card resolved from `data`:
     /// `(inputName, [indices])`, after checking it is non-empty, unique, in
-    /// range, and a single index unless the choice is multiple.
+    /// range, a single index unless the choice is multiple, and within a
+    /// multiple choice's `maxSelectionsPath` limit.
     pub fn selection_input(&self, data: &Value, selection: &[u32]) -> Result<(String, Value)> {
         let options = self
             .labels(data, None)
@@ -1167,6 +1258,9 @@ impl UiChoicesBlock {
             || unique.len() != selection.len()
             || selection.iter().any(|i| *i as usize >= options)
             || (selection.len() > 1 && !self.multiple(data))
+            || self
+                .max_selections(data, options)
+                .is_some_and(|max| selection.len() > max as usize)
         {
             return Err(ProtocolError::Denied("invalid UI choice selection"));
         }
@@ -1226,6 +1320,7 @@ impl UiEntriesBlock {
                     name,
                     user_id: user,
                     group,
+                    badge: badge(&self.value_labels, item, scope.translation),
                 })
             })
             .collect();
@@ -1322,6 +1417,7 @@ impl UiRowsBlock {
                     cells,
                     actions,
                     detail_input: scope.detail.and_then(|d| d.bind_input(row).ok()),
+                    badge: badge(&self.value_labels, row, scope.translation),
                 })
             })
             .collect();
