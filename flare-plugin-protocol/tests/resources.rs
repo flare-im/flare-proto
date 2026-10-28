@@ -188,3 +188,87 @@ fn members_check_needs_an_operation_permission_scope_like_every_read() {
         [HostCapability::ConversationMembersCheck]
     );
 }
+
+#[test]
+fn realtime_delivery_is_a_bounded_write_to_named_conversation_members() {
+    use flare_plugin_protocol::resource::{
+        MAX_REALTIME_PAYLOAD_BYTES, MAX_REALTIME_RECIPIENTS, MAX_REALTIME_TTL_MS, RealtimeDelivery,
+        ResourceWriteRequest,
+    };
+    assert!(HostCapability::RealtimeDeliver.is_write());
+    assert_eq!(HostCapability::RealtimeDeliver.id(), "im.realtime.deliver");
+
+    let valid = json!({
+        "capability": "im.realtime.deliver",
+        "conversationId": "1ADW0CVC4ESXQ0046R",
+        "userIds": ["u1", "u2"],
+        "packetType": "call.snapshot",
+        "payload": {"callId": "c1", "version": 3},
+        "ttlMs": 60000,
+    });
+    let request: ResourceWriteRequest = serde_json::from_value(valid.clone()).unwrap();
+    assert_eq!(request.capability(), HostCapability::RealtimeDeliver);
+    request.validate().unwrap();
+
+    // The payload must be an object, and no identity or URL can ride along.
+    for (field, value) in [
+        ("payload", json!("text")),
+        ("payload", json!([1])),
+        ("tenantId", json!("other")),
+        ("url", json!("https://host")),
+    ] {
+        let mut input = valid.clone();
+        input[field] = value;
+        assert!(serde_json::from_value::<ResourceWriteRequest>(input).is_err());
+    }
+
+    let mut fields = valid.clone();
+    fields.as_object_mut().unwrap().remove("capability");
+    let base: RealtimeDelivery = serde_json::from_value(fields).unwrap();
+    let invalid = |change: &dyn Fn(&mut RealtimeDelivery)| {
+        let mut delivery = base.clone();
+        change(&mut delivery);
+        delivery.validate().is_err()
+    };
+    assert!(invalid(&|d| d.user_ids.clear()));
+    assert!(invalid(&|d| d.user_ids = vec!["u1".into(), "u1".into()]));
+    assert!(invalid(&|d| d.user_ids = vec!["*".into()]));
+    assert!(invalid(&|d| {
+        d.user_ids = (0..=MAX_REALTIME_RECIPIENTS)
+            .map(|i| format!("u{i}"))
+            .collect()
+    }));
+    assert!(invalid(&|d| d.conversation_id = "../other".into()));
+    for packet_type in [
+        "",
+        "Call.snapshot",
+        "1call",
+        "call snapshot",
+        &"a".repeat(65),
+    ] {
+        assert!(invalid(&|d| d.packet_type = packet_type.to_owned()));
+    }
+    assert!(invalid(&|d| d.ttl_ms = 0));
+    assert!(invalid(&|d| d.ttl_ms = MAX_REALTIME_TTL_MS + 1));
+    assert!(invalid(&|d| {
+        d.payload
+            .insert("blob".into(), json!("x".repeat(MAX_REALTIME_PAYLOAD_BYTES)));
+    }));
+
+    // A full request still fits the resource request budget.
+    let mut largest = base.clone();
+    largest.user_ids = (0..MAX_REALTIME_RECIPIENTS)
+        .map(|i| format!("{i:0>128}"))
+        .collect();
+    largest.payload.insert(
+        "blob".into(),
+        json!("x".repeat(MAX_REALTIME_PAYLOAD_BYTES - 64)),
+    );
+    largest.validate().unwrap();
+    let bytes = serde_json::to_vec(&ResourceWriteRequest::RealtimeDeliver(largest)).unwrap();
+    assert!(
+        bytes.len() <= MAX_RESOURCE_REQUEST_BYTES,
+        "{} bytes",
+        bytes.len()
+    );
+}

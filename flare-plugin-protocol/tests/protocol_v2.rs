@@ -120,7 +120,9 @@ fn entity_state_publish_is_the_one_write_capability() {
     request.validate().unwrap();
     assert_eq!(request.capability(), HostCapability::EntityStatePublish);
     assert_eq!(serde_json::to_value(&request).unwrap(), raw);
-    let ResourceWriteRequest::EntityStatePublish(published) = &request;
+    let ResourceWriteRequest::EntityStatePublish(published) = &request else {
+        panic!("expected an entity state publish");
+    };
     assert_eq!(published.values["total"], json!(2));
     for bad in [
         json!({"capability": "im.plugin.entity_state.publish", "entity": "poll-1", "version": 3, "values": {}, "conversationId": "c"}),

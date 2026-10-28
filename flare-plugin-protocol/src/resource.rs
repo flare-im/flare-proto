@@ -1,8 +1,9 @@
 //! Host capabilities are explicit. Reads ([`ResourceRequest`]) are scoped to the
-//! conversation bound by the invoking user. The one write
-//! ([`ResourceWriteRequest`]) publishes shared state for an entity of the
-//! calling plugin only. Raw SQL, arbitrary URLs and bearer forwarding are
-//! deliberately absent from this contract.
+//! conversation bound by the invoking user. Writes ([`ResourceWriteRequest`])
+//! publish shared state for an entity of the calling plugin, or deliver a
+//! non-durable realtime packet to members of one conversation. Raw SQL,
+//! arbitrary URLs and bearer forwarding are deliberately absent from this
+//! contract.
 use crate::{ProtocolError, Result, state::SharedState};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,14 @@ pub const MAX_MEMBERS_CHECK_USER_IDS: usize = 50;
 /// A resource request body: an [`ResourceWriteRequest::EntityStatePublish`]
 /// carries up to [`crate::state::MAX_SHARED_STATE_BYTES`] of values.
 pub const MAX_RESOURCE_REQUEST_BYTES: usize = 12 * 1024;
+/// Recipients per [`RealtimeDelivery`]; 32 ids of 128 bytes plus a full
+/// payload stay under [`MAX_RESOURCE_REQUEST_BYTES`].
+pub const MAX_REALTIME_RECIPIENTS: usize = 32;
+/// Serialized `payload` of a [`RealtimeDelivery`].
+pub const MAX_REALTIME_PAYLOAD_BYTES: usize = 6 * 1024;
+pub const MAX_REALTIME_PACKET_TYPE_BYTES: usize = 64;
+/// A realtime packet is dropped by clients once this old.
+pub const MAX_REALTIME_TTL_MS: u32 = 120_000;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -37,6 +46,10 @@ pub enum HostCapability {
     /// calling plugin. Requested with [`ResourceWriteRequest`].
     #[serde(rename = "im.plugin.entity_state.publish")]
     EntityStatePublish,
+    /// Write: deliver a non-durable packet to online devices of members of one
+    /// conversation. Requested with [`ResourceWriteRequest::RealtimeDeliver`].
+    #[serde(rename = "im.realtime.deliver")]
+    RealtimeDeliver,
 }
 impl HostCapability {
     pub fn id(self) -> &'static str {
@@ -46,11 +59,12 @@ impl HostCapability {
             Self::ConversationMembersCheck => "im.conversation.members.check",
             Self::SocialGroupMemberRead => "social.group.member.read",
             Self::EntityStatePublish => "im.plugin.entity_state.publish",
+            Self::RealtimeDeliver => "im.realtime.deliver",
         }
     }
     /// Writes take a [`ResourceWriteRequest`]; every other capability is a read.
     pub fn is_write(self) -> bool {
-        matches!(self, Self::EntityStatePublish)
+        matches!(self, Self::EntityStatePublish | Self::RealtimeDeliver)
     }
 }
 
@@ -126,18 +140,87 @@ impl ResourceRequest {
 pub enum ResourceWriteRequest {
     #[serde(rename = "im.plugin.entity_state.publish")]
     EntityStatePublish(SharedState),
+    #[serde(rename = "im.realtime.deliver")]
+    RealtimeDeliver(RealtimeDelivery),
 }
 impl ResourceWriteRequest {
     pub fn capability(&self) -> HostCapability {
         match self {
             Self::EntityStatePublish(_) => HostCapability::EntityStatePublish,
+            Self::RealtimeDeliver(_) => HostCapability::RealtimeDeliver,
         }
     }
     pub fn validate(&self) -> Result<()> {
         match self {
             Self::EntityStatePublish(state) => state.validate(),
+            Self::RealtimeDeliver(delivery) => delivery.validate(),
         }
     }
+}
+
+/// `{"capability":"im.realtime.deliver","conversationId","userIds","packetType","payload","ttlMs"}`.
+///
+/// Core delivers the packet to the online devices of the listed users that
+/// are members of the conversation: at most once, not stored, never pushed
+/// offline. A delivery made under a user call ticket must name the
+/// conversation the ticket is bound to; the runtime credential may name any
+/// conversation of its tenant. Durable truth stays with the plugin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RealtimeDelivery {
+    pub conversation_id: String,
+    /// `1..=32` unique user ids.
+    pub user_ids: Vec<String>,
+    /// Lowercase `[a-z][a-z0-9._-]*`, at most 64 bytes, e.g. `call.snapshot`.
+    pub packet_type: String,
+    /// A JSON object of at most [`MAX_REALTIME_PAYLOAD_BYTES`] serialized.
+    pub payload: serde_json::Map<String, serde_json::Value>,
+    /// `1..=120000`: clients drop the packet once it is older than this.
+    pub ttl_ms: u32,
+}
+impl RealtimeDelivery {
+    pub fn validate(&self) -> Result<()> {
+        let unique = self
+            .user_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == self.user_ids.len();
+        let payload_ok = serde_json::to_vec(&self.payload)
+            .is_ok_and(|bytes| bytes.len() <= MAX_REALTIME_PAYLOAD_BYTES);
+        if valid_resource_id(&self.conversation_id)
+            && (1..=MAX_REALTIME_RECIPIENTS).contains(&self.user_ids.len())
+            && self.user_ids.iter().all(|id| valid_resource_id(id))
+            && unique
+            && valid_packet_type(&self.packet_type)
+            && payload_ok
+            && (1..=MAX_REALTIME_TTL_MS).contains(&self.ttl_ms)
+        {
+            Ok(())
+        } else {
+            Err(ProtocolError::Denied("invalid realtime delivery"))
+        }
+    }
+}
+
+/// The answer to [`ResourceWriteRequest::RealtimeDeliver`]. `skipped` lists the
+/// requested users that are not members of the conversation, in request order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RealtimeDeliveryView {
+    pub delivery_id: String,
+    pub delivered: u32,
+    pub skipped: Vec<String>,
+}
+
+fn valid_packet_type(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= MAX_REALTIME_PACKET_TYPE_BYTES
+        && bytes[0].is_ascii_lowercase()
+        && bytes.iter().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+        })
 }
 
 /// What Core did with a publish; every outcome is a success for the caller.
