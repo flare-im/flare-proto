@@ -13,7 +13,7 @@ message CustomData {
 }
 
 message CapabilityPacket {
-  string capability_id = 1;  // e.g. rtc.call | bot.command | workflow.approval
+  string capability_id = 1;  // plugin id, e.g. example.poll | flare.plugin.catalog
   string packet_type = 2;    // plugin-owned action/type
   string version = 3;
   bytes payload = 4;         // plugin-owned protobuf/JSON bytes

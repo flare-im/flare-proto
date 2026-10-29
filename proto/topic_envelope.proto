@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package flare.common.v1;
 
+import "data.proto";
 import "event.proto";
 import "errors.proto";
 import "message.proto";
@@ -44,6 +45,8 @@ enum PushTaskPayloadKind {
   PUSH_TASK_PAYLOAD_KIND_NOTIFICATION = 3;
   PUSH_TASK_PAYLOAD_KIND_ACK = 4;
   PUSH_TASK_PAYLOAD_KIND_CUSTOM = 5;
+  // Online only: AccessGateway PushCapability (DataPacket.capability), never an offline task.
+  PUSH_TASK_PAYLOAD_KIND_CAPABILITY = 6;
 }
 
 message PushTaskEnvelope {
@@ -93,7 +96,7 @@ message ConversationUpdateEnvelope {
   int64 updated_at = 9;
 }
 
-// PushEnvelope：ACK/通知/自定义/系统消息，经 MQ 到 Push Server，不落库。
+// PushEnvelope：ACK/通知/自定义/系统消息/插件实时包，经 MQ 到 Push Server，不落库。
 
 enum PushTargetType {
   PUSH_TARGET_TYPE_UNSPECIFIED = 0;
@@ -109,6 +112,7 @@ enum PushPayloadKind {
   PUSH_PAYLOAD_KIND_NOTIFICATION = 2; // 通知
   PUSH_PAYLOAD_KIND_CUSTOM = 3;      // 自定义数据
   PUSH_PAYLOAD_KIND_SYSTEM = 4;      // 系统消息
+  PUSH_PAYLOAD_KIND_CAPABILITY = 5;  // Plugin realtime packet: online connections only, never stored or pushed offline
 }
 
 // 推送选项
@@ -174,12 +178,13 @@ message PushEnvelope {
   PushPayloadKind payload_kind = 8;  // 载荷类型
   PushOptions options = 9;           // 推送选项
 
-  // 载荷内容（四选一）
+  // 载荷内容（五选一）
   oneof payload {
     AckPayload ack = 10;             // ACK载荷
     NotificationPayload notification = 11; // 通知载荷
     CustomPayload custom = 12;       // 自定义载荷
     SystemPayload system = 13;       // 系统消息载荷
+    CapabilityPacket capability = 15; // Plugin realtime packet, delivered as DataPacket.capability
   }
 
   // 元数据

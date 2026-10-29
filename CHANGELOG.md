@@ -7,6 +7,12 @@
 
 ### 新增
 
+- `PushPayloadKind` 增加 `PUSH_PAYLOAD_KIND_CAPABILITY = 5`，`PushEnvelope.payload` 增加
+  `CapabilityPacket capability = 15`；`PushTaskPayloadKind` 增加 `PUSH_TASK_PAYLOAD_KIND_CAPABILITY = 6`。
+  插件实时包（宿主能力 `im.realtime.deliver`）经推送链路只投在线连接，下行为 `DataPacket.capability`，
+  不入库、不做离线推送。对 `PushPayloadKind`、`PushTaskPayloadKind` 或 `push_envelope::Payload`
+  做穷尽匹配的下游代码需要补上新分支。
+
 - `ConversationUserSettings` 增加 `is_mention_only`（字段号 7）：
   只接收提到我的消息。与 `is_muted` 正交——muted 是「一条都别响」，
   mention_only 是「只有点名才响」，两者可同时开启。
