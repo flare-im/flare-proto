@@ -14,6 +14,7 @@
 //! ([`UiViewerState`], [`PluginMessageState::based_on_version`] and the
 //! versioned merge of [`UiStateLayers`]), grouped entries, menu actions
 //! ([`UiActionPlacement`]), account-entry summaries ([`UiEntrySummary`]),
+//! composer-entry availability ([`UiEntryAvailability`]),
 //! the envelope's `displayName`, and why a view is inert
 //! ([`UiUnavailableReason`]). Pages add a data source with paging
 //! ([`UiPageSource`]) and rows on page documents; choices take a selection
@@ -369,6 +370,31 @@ impl UiEntrySummary {
                     .collect::<String>()
             })
             .filter(|text| !text.trim().is_empty())
+    }
+}
+/// Whether a composer entry can be used now, as the plugin service says: the
+/// boolean at `path` in the result of `operation` (a declared `query` taking
+/// no input). For an entry whose capability depends on the deployment, such
+/// as payments that need an identity service. Hosts list the entry only when
+/// that value is `true`; a failed, slow or malformed answer hides it.
+/// Presentation only: the plugin still refuses the invocation itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiEntryAvailability {
+    pub operation: String,
+    pub path: String,
+}
+impl UiEntryAvailability {
+    pub fn validate(&self) -> Result<()> {
+        if self.operation.is_empty() || self.operation.len() > 128 || !valid_path(&self.path) {
+            return Err(ProtocolError::Denied("invalid UI entry availability"));
+        }
+        Ok(())
+    }
+    /// Whether the result `data` admits the entry: only a boolean `true` at
+    /// `path` does.
+    pub fn admits(&self, data: &Value) -> bool {
+        data.pointer(&self.path) == Some(&Value::Bool(true))
     }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

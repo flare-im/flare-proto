@@ -259,6 +259,11 @@ pub struct UiContribution {
     /// demand; listing entries never calls it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<crate::ui::UiEntrySummary>,
+    /// composer-action only: a `query` whose result says whether the entry
+    /// can be used now (see [`crate::ui::UiEntryAvailability`]). Without it
+    /// the entry is always listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability: Option<crate::ui::UiEntryAvailability>,
     /// page only: the `query` operation whose result the page document is
     /// resolved against, its input bound from the page arguments, and its
     /// paging (see [`crate::ui::UiPageSource`]).
@@ -744,6 +749,7 @@ impl PluginManifest {
                     contribution.detail.as_ref().map(|d| &d.operation),
                     contribution.viewer_state.as_ref().map(|v| &v.operation),
                     contribution.summary.as_ref().map(|s| &s.operation),
+                    contribution.availability.as_ref().map(|a| &a.operation),
                     contribution.entity_lifecycle.as_ref().map(|l| &l.unbound),
                     contribution.source.as_ref().map(|s| &s.operation),
                 ]
@@ -786,8 +792,8 @@ impl PluginManifest {
     }
 
     /// Contribution-kind rules for the v2 fields: entity binding, forwarding,
-    /// viewer state and entity lifecycle on message-content, audience on
-    /// composer-action, detail on message-content, the single page action and
+    /// viewer state and entity lifecycle on message-content, audience and
+    /// availability on composer-action, detail on message-content, the single page action and
     /// summary of account-entry, the source of a page, rows on page documents
     /// (console pages live in the manifest's `admin` section).
     fn validate_contribution_surface(&self, contribution: &UiContribution) -> Result<()> {
@@ -814,6 +820,20 @@ impl PluginManifest {
                 "composer-action only",
             )?;
             audience.validate()?;
+        }
+        if let Some(availability) = &contribution.availability {
+            ensure(
+                kind == UiContributionKind::ComposerAction,
+                "clientExtensions.contributions.availability",
+                "composer-action only",
+            )?;
+            availability.validate()?;
+            ensure(
+                self.operation(&availability.operation)
+                    .is_some_and(|op| op.mode == OperationMode::Query),
+                "clientExtensions.contributions.availability.operation",
+                "must be a declared query operation",
+            )?;
         }
         if let Some(detail) = &contribution.detail {
             ensure(

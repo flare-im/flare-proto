@@ -839,6 +839,67 @@ fn account_entries_hold_one_page_action_and_an_optional_query_summary() {
     assert!(parse(&manifest).is_err());
 }
 
+// ---- composer entry availability ----
+
+#[test]
+fn composer_entries_take_an_optional_query_availability_that_only_true_admits() {
+    let mut manifest = platform_manifest();
+    manifest["clientExtensions"]["contributions"][1]["availability"] =
+        json!({"operation": "example.poll.view", "path": "/available"});
+    let parsed = parse(&manifest).unwrap();
+    let entry = parsed.contribution("example.poll.create").unwrap();
+    assert_eq!(entry.kind, UiContributionKind::ComposerAction);
+    let availability = entry.availability.as_ref().unwrap();
+    assert!(availability.admits(&json!({"available": true})));
+    for refused in [
+        json!({"available": false}),
+        json!({"available": "true"}),
+        json!({"available": 1}),
+        json!({}),
+        Value::Null,
+    ] {
+        assert!(!availability.admits(&refused), "{refused}");
+    }
+    assert!(parsed.client_operation_refs().contains("example.poll.view"));
+    // Absent, it serializes as before.
+    let bare = parse(&platform_manifest()).unwrap();
+    assert!(
+        serde_json::to_value(bare.contribution("example.poll.create").unwrap())
+            .unwrap()
+            .get("availability")
+            .is_none()
+    );
+
+    let reject = |index: usize, availability: Value| {
+        let mut manifest = platform_manifest();
+        manifest["clientExtensions"]["contributions"][index]["availability"] = availability;
+        parse(&manifest).is_err()
+    };
+    // A command, an undeclared operation or a malformed path is refused.
+    assert!(reject(
+        1,
+        json!({"operation": "example.poll.vote", "path": "/available"})
+    ));
+    assert!(reject(
+        1,
+        json!({"operation": "example.poll.missing", "path": "/available"})
+    ));
+    assert!(reject(
+        1,
+        json!({"operation": "example.poll.view", "path": "available"})
+    ));
+    assert!(reject(1, json!({"operation": "", "path": "/available"})));
+    // Only composer-action takes it.
+    let card = card_index(&platform_manifest());
+    assert!(reject(
+        card,
+        json!({"operation": "example.poll.view", "path": "/available"})
+    ));
+    let mut entry = account_entry();
+    entry["availability"] = json!({"operation": "example.poll.view", "path": "/available"});
+    assert!(parse(&with_entry(entry)).is_err());
+}
+
 // ---- entity lifecycle ----
 
 #[test]
