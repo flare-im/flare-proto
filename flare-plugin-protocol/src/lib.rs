@@ -13,6 +13,7 @@ pub mod registration;
 pub mod registry;
 pub mod resource;
 pub mod runtime;
+pub mod service;
 pub mod signature;
 pub mod state;
 pub mod ui;

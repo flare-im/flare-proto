@@ -24,7 +24,7 @@ pub const OPTIONS_MAX_ITEMS: u32 = 50;
 /// `members`: most user ids (and the default `max`).
 pub const MEMBERS_MAX_ITEMS: u32 = 500;
 /// `select`: most choices.
-pub const SELECT_MAX_CHOICES: usize = 32;
+pub const SELECT_MAX_CHOICES: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -53,7 +53,7 @@ pub enum UiInputKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UiInputChoice {
-    /// `1..=64` bytes, unique within the input.
+    /// `1..=128` bytes, unique within the input.
     pub value: String,
     pub label: String,
 }
@@ -98,9 +98,13 @@ pub struct UiInput {
     /// entry); falls back to `default` when absent or of the wrong type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_path: Option<String>,
-    /// select only: `1..=32` choices.
+    /// select only: `1..=1024` choices.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<UiInputChoice>,
+    /// Read bounded select choices from the authenticated source projection.
+    /// Removed before rendering; every host consumes the same resolved list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choices_path: Option<String>,
 }
 
 /// One problem with a submitted form value.
@@ -181,6 +185,10 @@ impl UiInput {
             || ((self.min.is_some() || self.max.is_some()) && !ranged)
             || (self.default.is_some() && self.kind == Members)
             || (self.choices.is_empty() == (self.kind == Select))
+            || self
+                .choices_path
+                .as_deref()
+                .is_some_and(|p| self.kind != Select || !valid_path(p))
         {
             return invalid;
         }
@@ -228,7 +236,7 @@ impl UiInput {
                 if self.choices.len() > SELECT_MAX_CHOICES
                     || self.choices.iter().any(|c| {
                         c.value.is_empty()
-                            || c.value.len() > 64
+                            || c.value.len() > 128
                             || !valid_text(&c.label)
                             || !values.insert(c.value.as_str())
                     })
@@ -291,6 +299,20 @@ impl UiInput {
     /// value read from `data` when `defaultPath` holds one that fits.
     pub(crate) fn resolve(&self, data: &Value, translation: Option<&UiTranslation>) -> UiInput {
         let mut input = self.clone();
+        if let Some(choices) = self
+            .choices_path
+            .as_deref()
+            .and_then(|p| data.pointer(p))
+            .and_then(|v| serde_json::from_value::<Vec<UiInputChoice>>(v.clone()).ok())
+        {
+            let mut candidate = input.clone();
+            candidate.choices = choices;
+            candidate.choices_path = None;
+            if candidate.validate().is_ok() {
+                input.choices = candidate.choices;
+            }
+        }
+        input.choices_path = None;
         input.max_path = None;
         if let Some(most) = self
             .max_path

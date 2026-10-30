@@ -39,7 +39,7 @@ pub const UI_CATALOG_OPERATION: &str = "flare.plugin.ui.catalog";
 pub const MAX_UI_FIELDS: usize = 32;
 pub const MAX_UI_ACTIONS: usize = 16;
 pub const MAX_UI_BLOCKS: usize = 24;
-pub const MAX_UI_INPUTS: usize = 16;
+pub const MAX_UI_INPUTS: usize = 32;
 /// Labels, titles, placeholders and confirmations: bytes, no control characters.
 pub const MAX_UI_TEXT_BYTES: usize = 256;
 /// Literal text of text and note blocks: bytes, newlines allowed.
@@ -48,6 +48,8 @@ pub const MAX_UI_LONG_TEXT_BYTES: usize = 2000;
 pub const MAX_UI_TRANSLATED_TEXTS: usize = 256;
 /// Serialized size of an action input (declared input plus collected values).
 pub const MAX_UI_ACTION_INPUT_BYTES: usize = 16384;
+/// Bounded inert props for a compiled-in design-kit presentation.
+pub const MAX_UI_PRESENTATION_BYTES: usize = 65536;
 /// Key of the client-visible configuration in the data of a composer-action
 /// document (see [`composer_data`]).
 pub const COMPOSER_CONFIG_KEY: &str = "config";
@@ -58,6 +60,10 @@ pub const DETAIL_CURSOR_INPUT: &str = "cursor";
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UiDocument {
     pub title: String,
+    /// Optional compiled-in design-kit renderer. Contains inert display data
+    /// and references to this document's actions, never executable code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<UiPresentation>,
     #[serde(default)]
     pub fields: Vec<UiField>,
     #[serde(default)]
@@ -72,6 +78,24 @@ pub struct UiDocument {
     pub inputs: Vec<UiInput>,
     #[serde(default)]
     pub translations: BTreeMap<String, UiTranslation>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiPresentation {
+    pub renderer: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+    #[serde(default)]
+    pub bindings: BTreeMap<String, String>,
+    #[serde(default)]
+    pub actions: BTreeMap<String, String>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolvedUiPresentation {
+    pub renderer: String,
+    pub props: BTreeMap<String, Value>,
+    pub actions: BTreeMap<String, String>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -391,6 +415,70 @@ pub struct UiAction {
     /// submit, a row action) is never placed in the menu.
     #[serde(default, skip_serializing_if = "UiActionPlacement::is_buttons")]
     pub placement: UiActionPlacement,
+    /// Page commands persist before dispatch. Retry/ack use the original
+    /// authenticated journal record; a host cannot replace an unknown result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<UiPageCommand>,
+    /// Navigate only after a verified successful operation response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<UiPageTransition>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiPageCommand {
+    pub slot: String,
+    #[serde(default)]
+    pub mode: UiPageCommandMode,
+    #[serde(default)]
+    pub terminal_error_codes: Vec<String>,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UiPageCommandMode {
+    #[default]
+    Submit,
+    Retry,
+    Acknowledge,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiPageTransition {
+    pub page: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    #[serde(default)]
+    pub input: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<UiCondition>,
+}
+impl UiPageTransition {
+    pub fn resolve(&self, data: &Value) -> Result<Option<Value>> {
+        self.validate()?;
+        if self.when.as_ref().is_some_and(|c| !c.matches(data, "")) {
+            return Ok(None);
+        }
+        let mut target = serde_json::json!({"kind":"page","page":self.page});
+        if let Some(id) = &self.plugin_id {
+            target["pluginId"] = Value::from(id.clone());
+        }
+        Ok(Some(
+            serde_json::json!({"kind":"host","target":target,"payload":bind_inputs(&self.input,data)?}),
+        ))
+    }
+    pub fn validate(&self) -> Result<()> {
+        if self.page.is_empty()
+            || self.page.len() > 160
+            || !valid_bindings(&self.input)
+            || self
+                .plugin_id
+                .as_ref()
+                .is_some_and(|p| p.is_empty() || p.len() > 128)
+            || self.when.as_ref().is_some_and(|c| !c.is_valid())
+        {
+            return Err(ProtocolError::Denied("invalid page transition"));
+        }
+        Ok(())
+    }
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -574,9 +662,17 @@ pub(crate) fn translate(translation: Option<&UiTranslation>, source: &str) -> St
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum UiActionTarget {
-    Operation { operation: String },
-    Page { page: String },
-    Native { capability: NativeCapability },
+    Operation {
+        operation: String,
+    },
+    Page {
+        page: String,
+        #[serde(rename = "pluginId", default, skip_serializing_if = "Option::is_none")]
+        plugin_id: Option<String>,
+    },
+    Native {
+        capability: NativeCapability,
+    },
 }
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -755,6 +851,10 @@ pub struct UiPageSource {
     /// `input` may not bind `cursor`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_path: Option<String>,
+    /// SDK-local journal projection, merged under `journal` after the source
+    /// query. Scoped to the signed-in tenant/user; never supplied by a server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_slot: Option<String>,
 }
 impl UiPageSource {
     pub fn validate(&self) -> Result<()> {
@@ -762,6 +862,10 @@ impl UiPageSource {
             || self.operation.len() > 128
             || !valid_bindings(&self.input)
             || self.input.contains_key(DETAIL_CURSOR_INPUT)
+            || self
+                .command_slot
+                .as_ref()
+                .is_some_and(|s| s.is_empty() || s.len() > 128)
             || self
                 .cursor_path
                 .as_deref()
@@ -828,6 +932,25 @@ impl UiDocument {
         {
             return Err(ProtocolError::Denied("invalid UI document bounds"));
         }
+        if let Some(p) = &self.presentation
+            && (p.renderer.is_empty()
+                || p.renderer.len() > 96
+                || !p
+                    .renderer
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+                || !valid_bindings(&p.bindings)
+                || p.actions.len() > 16
+                || p.labels.len() > 32
+                || p.labels.iter().any(|(name, text)| {
+                    !valid_name(name) || !valid_text(text) || p.bindings.contains_key(name)
+                })
+                || p.actions.iter().any(|(name, id)| {
+                    !valid_name(name) || !self.actions.iter().any(|a| a.id == *id)
+                }))
+        {
+            return Err(ProtocolError::Denied("invalid UI presentation"));
+        }
         if self.translations.len() > 32
             || self.translations.iter().any(|(locale, t)| {
                 locale.is_empty()
@@ -893,6 +1016,27 @@ impl UiDocument {
                 return Err(ProtocolError::Denied("invalid UI action form"));
             }
             if !valid_text(&action.label)
+                || action.command.as_ref().is_some_and(|c| {
+                    c.slot.is_empty()
+                        || c.slot.len() > 128
+                        || !c
+                            .slot
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+                        || c.terminal_error_codes.len() > 32
+                        || c.terminal_error_codes.iter().any(|code| {
+                            code.is_empty()
+                                || code.len() > 128
+                                || !code.bytes().all(|b| {
+                                    b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'
+                                })
+                        })
+                        || !matches!(action.target, UiActionTarget::Operation { .. })
+                })
+                || action.continuation.as_ref().is_some_and(|t| {
+                    t.validate().is_err()
+                        || !matches!(action.target, UiActionTarget::Operation { .. })
+                })
                 || action.confirm.as_deref().is_some_and(|c| !valid_text(c))
                 || action.id.is_empty()
                 || action.id.len() > 64
@@ -1006,9 +1150,18 @@ impl UiDocument {
     /// Drop the actions whose target `keep` rejects together with every
     /// reference to them, and a rows block whose source it rejects. The
     /// document stays valid, so a host can trim it to what a viewer may invoke.
+    /// Keep named actions and prune all references to removed actions.
+    pub fn retain_actions(&mut self, keep: &mut dyn FnMut(&str) -> bool) {
+        self.actions.retain(|action| keep(&action.id));
+        self.retain_targets(&mut |_| true);
+    }
+
     pub fn retain_targets(&mut self, keep: &mut dyn FnMut(&UiActionTarget) -> bool) {
         self.actions.retain(|action| keep(&action.target));
         let ids: BTreeSet<String> = self.actions.iter().map(|a| a.id.clone()).collect();
+        if let Some(p) = &mut self.presentation {
+            p.actions.retain(|_, id| ids.contains(id));
+        }
         self.blocks.retain_mut(|block| match block {
             UiBlock::Choices(choices) => {
                 if choices.action.as_ref().is_some_and(|id| !ids.contains(id)) {
@@ -1265,6 +1418,8 @@ impl PluginMessageState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedPluginView {
     pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentation: Option<ResolvedUiPresentation>,
     /// Why the view is inert (`available: false`), or `unbound_copy` for a
     /// read-only copy (`available: true`, no actions, menu, detail or block
     /// submits). Absent on an interactive view.
@@ -1377,6 +1532,9 @@ impl ResolvedPluginView {
             return self;
         }
         self.unavailable_reason = Some(UiUnavailableReason::UnboundCopy);
+        if let Some(p) = &mut self.presentation {
+            p.actions.clear();
+        }
         self.actions.clear();
         self.menu_actions.clear();
         self.inputs.clear();
@@ -1484,6 +1642,42 @@ pub(crate) fn resolve_document(
     };
     ResolvedPluginView {
         available: true,
+        presentation: document.presentation.as_ref().and_then(|p| {
+            let mut props: BTreeMap<String, Value> = p
+                .bindings
+                .iter()
+                .filter_map(|(name, path)| {
+                    data.pointer(path)
+                        .filter(|v| !v.is_null())
+                        .map(|v| (name.clone(), v.clone()))
+                })
+                .collect();
+            for (name, label) in &p.labels {
+                let translated = translation
+                    .and_then(|t| t.texts.get(label))
+                    .unwrap_or(label);
+                props.insert(name.clone(), Value::String(translated.clone()));
+            }
+            // Keep display projections bounded, including arrays and strings.
+            if serde_json::to_vec(&props).ok()?.len() > MAX_UI_PRESENTATION_BYTES {
+                return None;
+            }
+            Some(ResolvedUiPresentation {
+                renderer: p.renderer.clone(),
+                props,
+                actions: p
+                    .actions
+                    .iter()
+                    .filter(|(_, id)| {
+                        actions
+                            .iter()
+                            .chain(menu_actions.iter())
+                            .any(|a| a.id == **id)
+                    })
+                    .map(|(name, id)| (name.clone(), id.clone()))
+                    .collect(),
+            })
+        }),
         unavailable_reason: None,
         title: translation.map_or(&document.title, |t| &t.title).clone(),
         fields,
@@ -1579,6 +1773,7 @@ impl ResolvedPluginView {
     fn inert(title: String, reason: UiUnavailableReason) -> Self {
         Self {
             available: false,
+            presentation: None,
             unavailable_reason: Some(reason),
             title,
             fields: vec![],
@@ -1763,12 +1958,21 @@ impl UiCatalog {
             UiActionTarget::Operation { operation } if !p.operations.contains(operation) => {
                 return Err(ProtocolError::Denied("UI operation unavailable"));
             }
-            UiActionTarget::Page { page }
-                if !p
-                    .extensions
-                    .contributions
+            UiActionTarget::Page { page, plugin_id }
+                if !self
+                    .plugins
                     .iter()
-                    .any(|c| &c.id == page && c.kind == UiContributionKind::Page) =>
+                    .filter(|candidate| {
+                        candidate.plugin_id == plugin_id.as_deref().unwrap_or(&p.plugin_id)
+                            && candidate.extensions.platforms.contains(&platform)
+                    })
+                    .any(|target| {
+                        target
+                            .extensions
+                            .contributions
+                            .iter()
+                            .any(|c| &c.id == page && c.kind == UiContributionKind::Page)
+                    }) =>
             {
                 return Err(ProtocolError::Denied("UI page unavailable"));
             }

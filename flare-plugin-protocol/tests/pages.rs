@@ -480,6 +480,134 @@ fn a_page_resolves_against_its_source_result_with_badges_and_paging() {
     assert_eq!(view.next_cursor, None);
 }
 
+// ---- row actions that open a page ----
+
+/// The history page with a third page, a packet page read by `view`, that
+/// each ledger row opens with its packet id.
+fn row_page_manifest() -> Value {
+    let mut manifest = page_manifest();
+    manifest["clientExtensions"]["contributions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "kind": "page", "id": "example.poll.packet", "schemaVersion": 1,
+            "requiredPermissions": [],
+            "source": {"operation": "example.poll.view", "input": {"packetId": "/packetId"}},
+            "schema": {"title": "红包", "fields": [{"label": "金额", "path": "/amountText"}]}
+        }));
+    let page = history(&mut manifest);
+    page["schema"]["actions"].as_array_mut().unwrap().push(
+        json!({"id": "packet", "label": "详情", "input": {"packetId": "/packetId"},
+                     "target": {"kind": "page", "page": "example.poll.packet"}}),
+    );
+    page["schema"]["blocks"][1]["actions"] = json!(["open", "packet"]);
+    manifest
+}
+
+#[test]
+fn a_page_row_action_opens_a_page_with_the_row_as_its_arguments() {
+    let manifest = parse(&row_page_manifest()).unwrap();
+    let catalog = catalog(&manifest);
+    let (_, page) = catalog
+        .page("example.poll", "example.poll.history", &context())
+        .unwrap();
+    let data = ledger(
+        json!([
+            {"id": "l1", "kind": "claim", "amountText": "+¥1.00", "packetId": "p1"},
+            {"id": "l2", "kind": "deposit", "amountText": "+¥5.00"}
+        ]),
+        None,
+    );
+    let view = page.resolve_page(&data, "zh-CN", "u1").unwrap();
+    let ResolvedUiBlock::Rows(rows) = &view.blocks[1] else {
+        panic!("rows second")
+    };
+    // The block lists the action with its target, so a host tells opening a
+    // page from invoking an operation.
+    let packet = rows.actions.iter().find(|a| a.id == "packet").unwrap();
+    assert_eq!(
+        packet.target,
+        UiActionTarget::Page {
+            plugin_id: None,
+            page: "example.poll.packet".into()
+        }
+    );
+    assert!(
+        view.actions.iter().all(|a| a.id != "packet"),
+        "the rows block owns it"
+    );
+    // The row binds the page's arguments.
+    assert_eq!(
+        rows.rows[0].actions,
+        vec![
+            ResolvedUiRowAction {
+                id: "open".into(),
+                input: json!({"packetId": "p1"})
+            },
+            ResolvedUiRowAction {
+                id: "packet".into(),
+                input: json!({"packetId": "p1"})
+            }
+        ]
+    );
+    // The catalog answers the action with its page target.
+    assert_eq!(
+        catalog
+            .action(
+                "201",
+                "example.poll",
+                "example.poll.history",
+                "packet",
+                ClientPlatform::Web,
+                &Default::default(),
+                true,
+                1000
+            )
+            .unwrap(),
+        UiActionTarget::Page {
+            plugin_id: None,
+            page: "example.poll.packet".into()
+        }
+    );
+    // The arguments feed the packet page's source.
+    let (_, packet_page) = catalog
+        .page("example.poll", "example.poll.packet", &context())
+        .unwrap();
+    assert_eq!(
+        packet_page
+            .source
+            .as_ref()
+            .unwrap()
+            .bind_input(&rows.rows[0].actions[1].input, Map::new())
+            .unwrap(),
+        json!({"packetId": "p1"})
+    );
+
+    let reject = |edit: &dyn Fn(&mut Value)| {
+        let mut manifest = row_page_manifest();
+        edit(&mut manifest);
+        parse(&manifest).is_err()
+    };
+    // The page must be declared.
+    assert!(reject(&|m| {
+        let actions = history(m)["schema"]["actions"].as_array_mut().unwrap();
+        actions[2]["target"] = json!({"kind": "page", "page": "example.poll.missing"});
+    }));
+    // A row never runs a native capability, even a declared one.
+    assert!(reject(&|m| {
+        m["clientExtensions"]["nativeCapabilities"] = json!(["camera"]);
+        let actions = history(m)["schema"]["actions"].as_array_mut().unwrap();
+        actions[2]["target"] = json!({"kind": "native", "capability": "camera"});
+    }));
+    let native: UiDocument = serde_json::from_value(json!({"title": "t",
+        "blocks": [{"kind": "rows", "source": "x.op.list", "path": "/rows", "keyPath": "/id",
+                    "columns": [{"label": "a", "path": "/a"}], "actions": ["shot"]}],
+        "actions": [{"id": "shot", "label": "拍", "target": {"kind": "native", "capability": "camera"}}]
+    }))
+    .unwrap();
+    assert!(native.validate().is_err());
+}
+
 // ---- value labels ----
 
 #[test]
@@ -563,4 +691,51 @@ fn a_multiple_choice_reports_and_enforces_its_limit() {
     bad["blocks"][0]["maxSelectionsPath"] = json!("maxSelections");
     let bad: UiDocument = serde_json::from_value(bad).unwrap();
     assert!(bad.validate().is_err());
+}
+
+#[test]
+fn durable_page_commands_and_cross_plugin_continuations_are_bounded_and_page_only() {
+    let mut value = page_manifest();
+    let i = page_index(&value, "example.poll.wallet");
+    let action = json!({"id":"submit","label":"Submit","target":{"kind":"operation","operation":"example.poll.transfer"},"command":{"slot":"example.poll.workflow","terminalErrorCodes":["DECLINED"]},"continuation":{"pluginId":"example.other","page":"example.other.result","input":{"id":"/result/id"}}});
+    value["clientExtensions"]["contributions"][i]["schema"]["actions"]
+        .as_array_mut()
+        .unwrap()
+        .push(action.clone());
+    assert!(parse(&value).is_ok());
+    for patch in [
+        json!({"slot":"other.workflow"}),
+        json!({"slot":"example.poll.workflow","terminalErrorCodes":["bad code"]}),
+    ] {
+        let mut bad = value.clone();
+        bad["clientExtensions"]["contributions"][i]["schema"]["actions"][1]["command"] = patch;
+        assert!(parse(&bad).is_err());
+    }
+    let card = page_index(&value, "example.poll.card");
+    value["clientExtensions"]["contributions"][card]["schema"]["actions"] = json!([action]);
+    assert!(parse(&value).is_err());
+}
+#[test]
+fn dynamic_selects_resolve_authenticated_directory_choices_and_reject_outside_values() {
+    let mut value = page_manifest();
+    let i = page_index(&value, "example.poll.wallet");
+    value["clientExtensions"]["contributions"][i]["schema"]["inputs"] = json!([{"id":"wallet","kind":"select","label":"Wallet","required":true,"choices":[{"value":"unavailable","label":"Unavailable"}],"choicesPath":"/wallets"}]);
+    value["clientExtensions"]["contributions"][i]["schema"]["actions"] = json!([{"id":"transfer","label":"Send","form":["wallet"],"target":{"kind":"operation","operation":"example.poll.transfer"}}]);
+    let manifest = parse(&value).unwrap();
+    let page = &manifest.client_extensions.contributions[i];
+    let id = "x".repeat(128);
+    let data = json!({"wallets":[{"value":id,"label":"Primary"}]});
+    let view = page.resolve_page(&data, "en-US", "alice").unwrap();
+    assert_eq!(view.inputs[0].choices[0].value, id);
+    assert!(view.inputs[0].choices_path.is_none());
+    assert!(
+        page.schema
+            .validate_form_over(&page.schema.actions[0], &data, &json!({"wallet":id}))
+            .is_ok()
+    );
+    assert!(
+        page.schema
+            .validate_form_over(&page.schema.actions[0], &data, &json!({"wallet":"foreign"}))
+            .is_err()
+    );
 }

@@ -1155,11 +1155,11 @@ fn document_bounds_and_translated_texts() {
             .validate()
             .is_err()
     );
-    let inputs: Vec<Value> = (0..17)
+    let inputs: Vec<Value> = (0..33)
         .map(|i| json!({"id": format!("i{i}"), "kind": "toggle", "label": "i"}))
         .collect();
     assert!(
-        doc(json!({"title": "t", "inputs": inputs[..16]}))
+        doc(json!({"title": "t", "inputs": inputs[..32]}))
             .validate()
             .is_ok()
     );

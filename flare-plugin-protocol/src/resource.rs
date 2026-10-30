@@ -1,9 +1,9 @@
 //! Host capabilities are explicit. Reads ([`ResourceRequest`]) are scoped to the
 //! conversation bound by the invoking user. Writes ([`ResourceWriteRequest`])
-//! publish shared state for an entity of the calling plugin, or deliver a
-//! non-durable realtime packet to members of one conversation. Raw SQL,
-//! arbitrary URLs and bearer forwarding are deliberately absent from this
-//! contract.
+//! publish shared state for an entity of the calling plugin, deliver a
+//! non-durable realtime packet to members of one conversation, or dispatch a
+//! delegated service operation to another plugin. Raw SQL, arbitrary URLs and
+//! bearer forwarding are deliberately absent from this contract.
 use crate::{ProtocolError, Result, state::SharedState};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,8 @@ pub enum HostCapability {
     /// conversation. Requested with [`ResourceWriteRequest::RealtimeDeliver`].
     #[serde(rename = "im.realtime.deliver")]
     RealtimeDeliver,
+    #[serde(rename = "plugin.service.dispatch")]
+    ServiceDispatch,
 }
 impl HostCapability {
     pub fn id(self) -> &'static str {
@@ -60,11 +62,15 @@ impl HostCapability {
             Self::SocialGroupMemberRead => "social.group.member.read",
             Self::EntityStatePublish => "im.plugin.entity_state.publish",
             Self::RealtimeDeliver => "im.realtime.deliver",
+            Self::ServiceDispatch => "plugin.service.dispatch",
         }
     }
     /// Writes take a [`ResourceWriteRequest`]; every other capability is a read.
     pub fn is_write(self) -> bool {
-        matches!(self, Self::EntityStatePublish | Self::RealtimeDeliver)
+        matches!(
+            self,
+            Self::EntityStatePublish | Self::RealtimeDeliver | Self::ServiceDispatch
+        )
     }
 }
 
@@ -142,18 +148,22 @@ pub enum ResourceWriteRequest {
     EntityStatePublish(SharedState),
     #[serde(rename = "im.realtime.deliver")]
     RealtimeDeliver(RealtimeDelivery),
+    #[serde(rename = "plugin.service.dispatch")]
+    ServiceDispatch(crate::service::PluginServiceRequest),
 }
 impl ResourceWriteRequest {
     pub fn capability(&self) -> HostCapability {
         match self {
             Self::EntityStatePublish(_) => HostCapability::EntityStatePublish,
             Self::RealtimeDeliver(_) => HostCapability::RealtimeDeliver,
+            Self::ServiceDispatch(_) => HostCapability::ServiceDispatch,
         }
     }
     pub fn validate(&self) -> Result<()> {
         match self {
             Self::EntityStatePublish(state) => state.validate(),
             Self::RealtimeDeliver(delivery) => delivery.validate(),
+            Self::ServiceDispatch(request) => request.validate(),
         }
     }
 }

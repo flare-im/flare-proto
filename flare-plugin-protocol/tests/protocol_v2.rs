@@ -114,7 +114,7 @@ fn shared_state_from_result_and_version_order() {
 }
 
 #[test]
-fn entity_state_publish_is_the_one_write_capability() {
+fn entity_publication_and_service_dispatch_are_typed_writes() {
     let raw = json!({"capability": "im.plugin.entity_state.publish", "entity": "poll-1", "version": 3, "values": {"total": 2}});
     let request: ResourceWriteRequest = serde_json::from_value(raw.clone()).unwrap();
     request.validate().unwrap();
@@ -139,6 +139,7 @@ fn entity_state_publish_is_the_one_write_capability() {
     // Reads stay reads.
     assert!(serde_json::from_value::<ResourceRequest>(raw).is_err());
     assert!(HostCapability::EntityStatePublish.is_write());
+    assert!(HostCapability::ServiceDispatch.is_write());
     assert!(!HostCapability::ConversationRead.is_write());
     assert_eq!(
         HostCapability::EntityStatePublish.id(),

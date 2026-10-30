@@ -421,6 +421,14 @@ impl PluginCallSigner {
         claims.validate(now_ms)?;
         seal(CALL_DOMAIN, &self.key_id, &self.key, claims)
     }
+    pub fn sign_service(
+        &self,
+        claims: &crate::service::PluginServiceClaims,
+        now_ms: i64,
+    ) -> Result<String> {
+        claims.validate(now_ms)?;
+        seal("flare.plugin.service/v1", &self.key_id, &self.key, claims)
+    }
     pub fn sign_staff(&self, claims: &PluginStaffCallClaims, now_ms: i64) -> Result<String> {
         claims.validate(now_ms)?;
         seal(STAFF_CALL_DOMAIN, &self.key_id, &self.key, claims)
@@ -460,6 +468,16 @@ impl PluginCallVerifier {
     /// A user ticket. A staff ticket never verifies here.
     pub fn verify(&self, token: &str, now_ms: i64) -> Result<PluginCallClaims> {
         let (_, claims): (_, PluginCallClaims) = open(CALL_DOMAIN, token, |id| self.keys.get(id))?;
+        claims.validate(now_ms)?;
+        Ok(claims)
+    }
+    pub fn verify_service(
+        &self,
+        token: &str,
+        now_ms: i64,
+    ) -> Result<crate::service::PluginServiceClaims> {
+        let (_, claims): (_, crate::service::PluginServiceClaims) =
+            open("flare.plugin.service/v1", token, |id| self.keys.get(id))?;
         claims.validate(now_ms)?;
         Ok(claims)
     }

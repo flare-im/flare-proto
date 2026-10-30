@@ -28,6 +28,8 @@ pub struct PluginManifest {
     pub runtime: PluginRuntime,
     #[serde(default)]
     pub dependencies: Vec<PluginDependency>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub service_operations: Vec<crate::service::ServiceOperation>,
     pub capabilities: Vec<Capability>,
     pub permissions: Vec<PluginPermission>,
     #[serde(default)]
@@ -387,6 +389,23 @@ pub struct PluginArtifact {
 }
 
 impl PluginManifest {
+    pub fn service_operation_ids(&self) -> BTreeSet<String> {
+        self.service_operations
+            .iter()
+            .map(|s| s.operation.clone())
+            .collect()
+    }
+    pub fn requires(&self, plugin_id: &str, version: &str) -> bool {
+        self.dependencies.iter().any(|d| {
+            d.plugin_id == plugin_id
+                && !d.optional
+                && semver::VersionReq::parse(&d.version_range)
+                    .ok()
+                    .zip(semver::Version::parse(version).ok())
+                    .is_some_and(|(r, v)| r.matches(&v))
+        })
+    }
+
     pub fn from_json(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(ProtocolError::ManifestTooLarge(MAX_MANIFEST_BYTES));
@@ -476,6 +495,24 @@ impl PluginManifest {
             "dependencies",
             "too many dependencies",
         )?;
+        ensure(
+            self.service_operations.len() <= 256,
+            "serviceOperations",
+            "too many service operations",
+        )?;
+        let client_ops = self.client_operation_refs();
+        let mut service_ops = BTreeSet::new();
+        for service in &self.service_operations {
+            if !service_ops.insert(&service.operation)
+                || self.operation(&service.operation).is_none()
+                || self.admin_operations().contains(&service.operation)
+                || client_ops.contains(&service.operation)
+            {
+                return Err(ProtocolError::Denied(
+                    "invalid service operation declaration",
+                ));
+            }
+        }
         let mut dependencies = BTreeSet::new();
         for dep in &self.dependencies {
             identifier(&dep.plugin_id, "dependencies.pluginId")?;
@@ -627,7 +664,14 @@ impl PluginManifest {
                         UiActionTarget::Operation { operation } => {
                             self.operation(operation).is_some()
                         }
-                        UiActionTarget::Page { page } => self
+                        UiActionTarget::Page { page, plugin_id }
+                            if plugin_id.as_ref().is_some_and(|p| p != &self.plugin_id) =>
+                        {
+                            plugin_id
+                                .as_ref()
+                                .is_some_and(|id| page.starts_with(&format!("{id}.")))
+                        }
+                        UiActionTarget::Page { page, .. } => self
                             .client_extensions
                             .contributions
                             .iter()
@@ -846,6 +890,14 @@ impl PluginManifest {
             ensure(page, "clientExtensions.contributions.source", "page only")?;
             source.validate()?;
             ensure(
+                source
+                    .command_slot
+                    .as_ref()
+                    .is_none_or(|slot| slot.starts_with(&format!("{}.", self.plugin_id))),
+                "clientExtensions.source.commandSlot",
+                "journal slot must belong to plugin",
+            )?;
+            ensure(
                 self.operation(&source.operation)
                     .is_some_and(|op| op.mode == OperationMode::Query),
                 "clientExtensions.contributions.source.operation",
@@ -864,6 +916,35 @@ impl PluginManifest {
         let documents = std::iter::once(&contribution.schema)
             .chain(contribution.detail.as_ref().map(|detail| &detail.document));
         for (index, document) in documents.enumerate() {
+            for action in &document.actions {
+                ensure(
+                    (action.command.is_none() && action.continuation.is_none())
+                        || (page && index == 0),
+                    "clientExtensions.actions.command",
+                    "durable commands and continuations require a page document",
+                )?;
+                if let Some(command) = &action.command {
+                    ensure(
+                        command.slot.starts_with(&format!("{}.", self.plugin_id)),
+                        "clientExtensions.actions.command.slot",
+                        "journal slot must belong to plugin",
+                    )?;
+                }
+                if let Some(t) = &action.continuation {
+                    let target = t.plugin_id.as_deref().unwrap_or(&self.plugin_id);
+                    ensure(
+                        t.page.starts_with(&format!("{target}."))
+                            && (target != self.plugin_id
+                                || self
+                                    .client_extensions
+                                    .contributions
+                                    .iter()
+                                    .any(|c| c.id == t.page && c.kind == UiContributionKind::Page)),
+                        "clientExtensions.actions.continuation",
+                        "target page must be declared",
+                    )?;
+                }
+            }
             let rows = document.rows_sources().count();
             ensure(
                 rows == 0 || (page && index == 0 && rows == 1),

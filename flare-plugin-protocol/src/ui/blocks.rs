@@ -458,8 +458,10 @@ pub struct UiRowsBlock {
     pub columns: Vec<UiColumn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_path: Option<String>,
-    /// `0..=4` ids of document actions with operation targets. Their
-    /// `hiddenWhen` and declared input read the row; the block owns them.
+    /// `0..=4` ids of document actions with operation or page targets (an
+    /// admin page's: operation targets only). Their `hiddenWhen` and declared
+    /// input read the row; the block owns them. A page target opens that page
+    /// with the row's bound input as its arguments.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -480,6 +482,9 @@ pub struct UiRowsBlock {
 
 // ---- resolved blocks ----
 
+// A resolved block is built per rendered page and serialized right away; boxing the choices
+// variant (it carries its submit action) would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ResolvedUiBlock {
@@ -693,7 +698,8 @@ pub struct ResolvedUiRows {
     /// Cursor of the next page; absent on the last page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
-    /// The row actions, resolved once; each row lists the ones it offers.
+    /// The row actions, resolved once, with their targets (an operation to
+    /// invoke or a page to open); each row lists the ones it offers.
     pub actions: Vec<UiAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub empty_text: Option<String>,
@@ -736,7 +742,8 @@ pub struct ResolvedUiCell {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedUiRowAction {
     pub id: String,
-    /// The action's declared input bound from the row.
+    /// The action's declared input bound from the row: the operation input,
+    /// or for a page target the arguments of the page it opens.
     pub input: Value,
 }
 
@@ -768,6 +775,18 @@ fn operation_action<'a>(actions: &'a [UiAction], id: &str) -> Option<&'a UiActio
     actions
         .iter()
         .find(|a| a.id == id && matches!(a.target, UiActionTarget::Operation { .. }))
+}
+/// An action a rows block may own: an operation, or a page the row opens with
+/// the row's bound input as its arguments. Never a native capability. Admin
+/// pages admit operation targets only (`admin.pages`).
+fn row_action<'a>(actions: &'a [UiAction], id: &str) -> Option<&'a UiAction> {
+    actions.iter().find(|a| {
+        a.id == id
+            && matches!(
+                a.target,
+                UiActionTarget::Operation { .. } | UiActionTarget::Page { .. }
+            )
+    })
 }
 fn text_or_path(text: &Option<String>, path: &Option<String>) -> bool {
     match (text, path) {
@@ -921,7 +940,7 @@ impl UiBlock {
                     && b.actions.len() <= MAX_UI_ROW_ACTIONS
                     && b.actions
                         .iter()
-                        .all(|id| ids.insert(id) && operation_action(actions, id).is_some())
+                        .all(|id| ids.insert(id) && row_action(actions, id).is_some())
                     && optional_text(&b.empty_text)
                     && b.filters.as_ref().is_none_or(|filters| {
                         let mut seen = BTreeSet::new();
@@ -1374,7 +1393,7 @@ impl UiRowsBlock {
         let row_actions: Vec<&UiAction> = self
             .actions
             .iter()
-            .filter_map(|id| operation_action(scope.actions, id))
+            .filter_map(|id| row_action(scope.actions, id))
             .collect();
         let rows = raw_rows
             .iter()

@@ -1017,6 +1017,11 @@ fn the_admin_section_declares_permissions_operations_pages_and_lifecycle() {
             json!({"kind": "operation", "operation": "example.poll.vote"})
     ));
     assert!(
+        reject(&|a| a["pages"][0]["document"]["actions"][0]["target"] =
+            json!({"kind": "page", "page": "example.poll.wallet"})),
+        "an admin row action calls an admin operation, never opens a page"
+    );
+    assert!(
         reject(&|a| a["pages"][1]["widgets"][0]["source"] = json!("example.poll.remove")),
         "a widget reads a query"
     );
