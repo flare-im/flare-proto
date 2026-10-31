@@ -1,0 +1,981 @@
+{
+  "ResolvedUiBlock": {
+    "array form": {
+      "array str, array value": "ok [{\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}]",
+      "input": "[\"note\",\"Heads up\",\"warning\"]",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}"
+    },
+    "array form missing a required field": {
+      "array str": "err Data: invalid length 1, expected struct ResolvedUiStatus with 3 elements at line 1 column 19",
+      "input": "[\"status\",\"Open\"]",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 1, expected struct ResolvedUiStatus with 3 elements"
+    },
+    "array form with an extra element": {
+      "array str": "err Data: invalid length 3, expected 2 elements in sequence at line 1 column 39",
+      "input": "[\"note\",\"Heads up\",\"warning\",\"extra\"]",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 3, expected 2 elements in sequence"
+    },
+    "array with a number kind": {
+      "input": "[1]",
+      "reader, array str": "err Data: invalid type: integer `1`, expected variant identifier at line 1 column 3",
+      "str, slice": "err Data: invalid type: integer `1`, expected variant identifier at line 1 column 2",
+      "value, value ref, array value": "err Data: invalid type: integer `1`, expected variant identifier"
+    },
+    "array with an unknown kind": {
+      "array str": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 9",
+      "input": "[\"bogus\"]",
+      "str, slice, reader": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 8",
+      "value, value ref, array value": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows`"
+    },
+    "bool": {
+      "array str": "err Data: invalid type: boolean `true`, expected internally tagged enum ResolvedUiBlock at line 1 column 5",
+      "input": "true",
+      "str, slice, reader": "err Data: invalid type: boolean `true`, expected internally tagged enum ResolvedUiBlock at line 1 column 4",
+      "value, value ref, array value": "err Data: invalid type: boolean `true`, expected internally tagged enum ResolvedUiBlock"
+    },
+    "choices": {
+      "array str, array value": "ok [{\"kind\":\"choices\",\"options\":[{\"index\":0,\"label\":\"Yes\",\"selected\":true,\"count\":3,\"percent\":75},{\"index\":1,\"label\":\"No\",\"selected\":false}],\"multiple\":false,\"voted\":true,\"closed\":false,\"showResults\":true,\"total\":4,\"inputName\":\"selection\",\"maxSelections\":1,\"action\":{\"id\":\"vote\",\"label\":\"Vote\",\"target\":{\"kind\":\"operation\",\"operation\":\"x.poll.vote\"},\"input\":{\"a\":\"b\"},\"hiddenWhen\":[{\"path\":\"/closed\",\"exists\":true}],\"form\":[\"note\"],\"confirm\":\"Sure?\",\"style\":\"primary\",\"placement\":\"menu\",\"command\":{\"slot\":\"vote\",\"mode\":\"retry\",\"terminalErrorCodes\":[\"closed\"]},\"continuation\":{\"page\":\"result\",\"pluginId\":\"x.poll\",\"input\":{\"id\":\"/id\"},\"when\":{\"path\":\"/ok\",\"exists\":true}}}}]",
+      "input": "{\"kind\":\"choices\",\"options\":[{\"index\":0,\"label\":\"Yes\",\"selected\":true,\"count\":3,\"percent\":75},{\"index\":1,\"label\":\"No\",\"selected\":false}],\"multiple\":false,\"voted\":true,\"closed\":false,\"showResults\":true,\"total\":4,\"inputName\":\"selection\",\"maxSelections\":1,\"action\":{\"id\":\"vote\",\"label\":\"Vote\",\"target\":{\"kind\":\"operation\",\"operation\":\"x.poll.vote\"},\"input\":{\"a\":\"b\"},\"hiddenWhen\":[{\"path\":\"/closed\",\"exists\":true}],\"form\":[\"note\"],\"confirm\":\"Sure?\",\"style\":\"primary\",\"placement\":\"menu\",\"command\":{\"slot\":\"vote\",\"mode\":\"retry\",\"terminalErrorCodes\":[\"closed\"]},\"continuation\":{\"page\":\"result\",\"pluginId\":\"x.poll\",\"input\":{\"id\":\"/id\"},\"when\":{\"path\":\"/ok\",\"exists\":true}}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"choices\",\"options\":[{\"index\":0,\"label\":\"Yes\",\"selected\":true,\"count\":3,\"percent\":75},{\"index\":1,\"label\":\"No\",\"selected\":false}],\"multiple\":false,\"voted\":true,\"closed\":false,\"showResults\":true,\"total\":4,\"inputName\":\"selection\",\"maxSelections\":1,\"action\":{\"id\":\"vote\",\"label\":\"Vote\",\"target\":{\"kind\":\"operation\",\"operation\":\"x.poll.vote\"},\"input\":{\"a\":\"b\"},\"hiddenWhen\":[{\"path\":\"/closed\",\"exists\":true}],\"form\":[\"note\"],\"confirm\":\"Sure?\",\"style\":\"primary\",\"placement\":\"menu\",\"command\":{\"slot\":\"vote\",\"mode\":\"retry\",\"terminalErrorCodes\":[\"closed\"]},\"continuation\":{\"page\":\"result\",\"pluginId\":\"x.poll\",\"input\":{\"id\":\"/id\"},\"when\":{\"path\":\"/ok\",\"exists\":true}}}}"
+    },
+    "choices without an action": {
+      "array str, array value": "ok [{\"kind\":\"choices\",\"options\":[],\"multiple\":true,\"voted\":false,\"closed\":true,\"showResults\":false,\"inputName\":\"selection\"}]",
+      "input": "{\"kind\":\"choices\",\"options\":[],\"multiple\":true,\"voted\":false,\"closed\":true,\"showResults\":false,\"inputName\":\"selection\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"choices\",\"options\":[],\"multiple\":true,\"voted\":false,\"closed\":true,\"showResults\":false,\"inputName\":\"selection\"}"
+    },
+    "divider": {
+      "array str, array value": "ok [{\"kind\":\"divider\"}]",
+      "input": "{\"kind\":\"divider\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"divider\"}"
+    },
+    "duplicate field": {
+      "array str": "err Data: duplicate field `text` at line 1 column 39",
+      "array value": "ok [{\"kind\":\"note\",\"text\":\"b\"}]",
+      "input": "{\"kind\":\"note\",\"text\":\"a\",\"text\":\"b\"}",
+      "str, slice, reader": "err Data: duplicate field `text`",
+      "value, value ref": "ok {\"kind\":\"note\",\"text\":\"b\"}"
+    },
+    "duplicate field in a nested action": {
+      "array str": "err Data: duplicate field `id` at line 1 column 205",
+      "array value": "ok [{\"kind\":\"choices\",\"options\":[],\"multiple\":false,\"voted\":false,\"closed\":false,\"showResults\":false,\"inputName\":\"s\",\"action\":{\"id\":\"b\",\"label\":\"L\",\"target\":{\"kind\":\"operation\",\"operation\":\"x.op\"},\"input\":{}}}]",
+      "input": "{\"kind\":\"choices\",\"options\":[],\"multiple\":false,\"voted\":false,\"closed\":false,\"showResults\":false,\"inputName\":\"s\",\"action\":{\"id\":\"a\",\"id\":\"b\",\"label\":\"L\",\"target\":{\"kind\":\"operation\",\"operation\":\"x.op\"}}}",
+      "str, slice, reader": "err Data: duplicate field `id`",
+      "value, value ref": "ok {\"kind\":\"choices\",\"options\":[],\"multiple\":false,\"voted\":false,\"closed\":false,\"showResults\":false,\"inputName\":\"s\",\"action\":{\"id\":\"b\",\"label\":\"L\",\"target\":{\"kind\":\"operation\",\"operation\":\"x.op\"},\"input\":{}}}"
+    },
+    "duplicate kind": {
+      "array value": "ok [{\"kind\":\"divider\"}]",
+      "input": "{\"kind\":\"divider\",\"kind\":\"divider\"}",
+      "reader, array str": "err Data: duplicate field `kind` at line 1 column 25",
+      "str, slice": "err Data: duplicate field `kind` at line 1 column 24",
+      "value, value ref": "ok {\"kind\":\"divider\"}"
+    },
+    "duplicate kind in a nested action target": {
+      "array str": "err Data: duplicate field `kind` at line 1 column 210",
+      "input": "{\"kind\":\"choices\",\"options\":[],\"multiple\":false,\"voted\":false,\"closed\":false,\"showResults\":false,\"inputName\":\"s\",\"action\":{\"id\":\"a\",\"label\":\"L\",\"target\":{\"kind\":\"operation\",\"kind\":\"page\",\"operation\":\"x.op\"}}}",
+      "str, slice, reader": "err Data: duplicate field `kind`",
+      "value, value ref, array value": "err Data: unknown field `operation`, expected `page` or `pluginId`"
+    },
+    "empty array": {
+      "array str": "err Data: missing field `kind` at line 1 column 3",
+      "input": "[]",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 2",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "empty object": {
+      "array str": "err Data: missing field `kind` at line 1 column 3",
+      "input": "{}",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 2",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "entries": {
+      "array str, array value": "ok [{\"kind\":\"entries\",\"items\":[{\"index\":1,\"text\":\"Alice\",\"name\":\"A\",\"userId\":\"u1\",\"group\":{\"key\":\"0\",\"label\":\"Yes\",\"count\":2,\"total\":4,\"percent\":50},\"badge\":{\"text\":\"Done\",\"tone\":\"success\"}},{\"index\":2,\"text\":\"Bob\"}],\"numbered\":true,\"total\":2,\"more\":false,\"emptyText\":\"None\",\"grouped\":true}]",
+      "input": "{\"kind\":\"entries\",\"items\":[{\"index\":1,\"text\":\"Alice\",\"name\":\"A\",\"userId\":\"u1\",\"group\":{\"key\":\"0\",\"label\":\"Yes\",\"count\":2,\"total\":4,\"percent\":50},\"badge\":{\"text\":\"Done\",\"tone\":\"success\"}},{\"index\":2,\"text\":\"Bob\"}],\"numbered\":true,\"total\":2,\"more\":false,\"emptyText\":\"None\",\"grouped\":true}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"entries\",\"items\":[{\"index\":1,\"text\":\"Alice\",\"name\":\"A\",\"userId\":\"u1\",\"group\":{\"key\":\"0\",\"label\":\"Yes\",\"count\":2,\"total\":4,\"percent\":50},\"badge\":{\"text\":\"Done\",\"tone\":\"success\"}},{\"index\":2,\"text\":\"Bob\"}],\"numbered\":true,\"total\":2,\"more\":false,\"emptyText\":\"None\",\"grouped\":true}"
+    },
+    "eof after a type error": {
+      "array str": "err Syntax: key must be a string at line 1 column 26",
+      "input": "{\"kind\":\"text\",\"text\":5,",
+      "str, slice, reader": "err Eof: EOF while parsing a value at line 1 column 24",
+      "value, value ref, array value": "not JSON: EOF while parsing a value at line 1 column 24"
+    },
+    "fields": {
+      "array str, array value": "ok [{\"kind\":\"fields\",\"fields\":[{\"label\":\"Amount\",\"value\":\"5\"},{\"label\":\"To\",\"value\":\"Ann\"}]}]",
+      "input": "{\"kind\":\"fields\",\"fields\":[{\"label\":\"Amount\",\"value\":\"5\"},{\"label\":\"To\",\"value\":\"Ann\"}]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"fields\",\"fields\":[{\"label\":\"Amount\",\"value\":\"5\"},{\"label\":\"To\",\"value\":\"Ann\"}]}"
+    },
+    "float": {
+      "array str": "err Data: invalid type: floating point `1.5`, expected internally tagged enum ResolvedUiBlock at line 1 column 4",
+      "input": "1.5",
+      "str, slice, reader": "err Data: invalid type: floating point `1.5`, expected internally tagged enum ResolvedUiBlock at line 1 column 3",
+      "value, value ref, array value": "err Data: invalid type: floating point `1.5`, expected internally tagged enum ResolvedUiBlock"
+    },
+    "i64 out of range": {
+      "array str": "err Data: invalid value: integer `9223372036854775808`, expected i64 at line 1 column 62",
+      "input": "{\"kind\":\"time\",\"atMs\":9223372036854775808,\"countdown\":false}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid value: integer `9223372036854775808`, expected i64"
+    },
+    "integer": {
+      "array str": "err Data: invalid type: integer `1`, expected internally tagged enum ResolvedUiBlock at line 1 column 2",
+      "input": "1",
+      "str, slice, reader": "err Data: invalid type: integer `1`, expected internally tagged enum ResolvedUiBlock at line 1 column 1",
+      "value, value ref, array value": "err Data: invalid type: integer `1`, expected internally tagged enum ResolvedUiBlock"
+    },
+    "kind in another case": {
+      "array str": "err Data: unknown variant `Text`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 15",
+      "input": "{\"kind\":\"Text\"}",
+      "str, slice, reader": "err Data: unknown variant `Text`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 14",
+      "value, value ref, array value": "err Data: unknown variant `Text`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows`"
+    },
+    "kind is a bool": {
+      "array str": "err Data: invalid type: boolean `true`, expected variant identifier at line 1 column 13",
+      "input": "{\"kind\":true}",
+      "str, slice, reader": "err Data: invalid type: boolean `true`, expected variant identifier at line 1 column 12",
+      "value, value ref, array value": "err Data: invalid type: boolean `true`, expected variant identifier"
+    },
+    "kind is a number": {
+      "input": "{\"kind\":0}",
+      "reader, array str": "err Data: invalid type: integer `0`, expected variant identifier at line 1 column 10",
+      "str, slice": "err Data: invalid type: integer `0`, expected variant identifier at line 1 column 9",
+      "value, value ref, array value": "err Data: invalid type: integer `0`, expected variant identifier"
+    },
+    "kind is an array": {
+      "input": "{\"kind\":[\"text\"]}",
+      "reader, array str": "err Data: invalid type: sequence, expected variant identifier at line 1 column 9",
+      "str, slice": "err Data: invalid type: sequence, expected variant identifier at line 1 column 8",
+      "value, value ref, array value": "err Data: invalid type: sequence, expected variant identifier"
+    },
+    "kind is an object": {
+      "input": "{\"kind\":{}}",
+      "reader, array str": "err Data: invalid type: map, expected variant identifier at line 1 column 9",
+      "str, slice": "err Data: invalid type: map, expected variant identifier at line 1 column 8",
+      "value, value ref, array value": "err Data: invalid type: map, expected variant identifier"
+    },
+    "kind is null": {
+      "array str": "err Data: invalid type: null, expected variant identifier at line 1 column 13",
+      "input": "{\"kind\":null}",
+      "str, slice, reader": "err Data: invalid type: null, expected variant identifier at line 1 column 12",
+      "value, value ref, array value": "err Data: invalid type: null, expected variant identifier"
+    },
+    "kind last": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\",\"style\":\"body\"}]",
+      "input": "{\"text\":\"Hello\",\"style\":\"body\",\"kind\":\"text\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\",\"style\":\"body\"}"
+    },
+    "missing required field": {
+      "array str": "err Data: missing field `style` at line 1 column 32",
+      "input": "{\"kind\":\"text\",\"text\":\"Hello\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: missing field `style`"
+    },
+    "negative integer": {
+      "array str": "err Data: invalid type: integer `-1`, expected internally tagged enum ResolvedUiBlock at line 1 column 3",
+      "input": "-1",
+      "str, slice, reader": "err Data: invalid type: integer `-1`, expected internally tagged enum ResolvedUiBlock at line 1 column 2",
+      "value, value ref, array value": "err Data: invalid type: integer `-1`, expected internally tagged enum ResolvedUiBlock"
+    },
+    "nested action target as an array": {
+      "array str, array value": "ok [{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"page\",\"page\":\"p\",\"pluginId\":\"x.other\"},\"input\":{}}]}]",
+      "input": "{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":[\"page\",\"p\",\"x.other\"]}]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"page\",\"page\":\"p\",\"pluginId\":\"x.other\"},\"input\":{}}]}"
+    },
+    "nested enum value as a map with an empty object": {
+      "array str, array value": "ok [{\"kind\":\"status\",\"text\":\"Open\",\"tone\":\"info\"}]",
+      "input": "{\"kind\":\"status\",\"text\":\"Open\",\"tone\":{\"info\":{}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"status\",\"text\":\"Open\",\"tone\":\"info\"}"
+    },
+    "no kind": {
+      "array str": "err Data: missing field `kind` at line 1 column 13",
+      "input": "{\"text\":\"x\"}",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 12",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "note": {
+      "array str, array value": "ok [{\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}]",
+      "input": "{\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}"
+    },
+    "null": {
+      "array str": "err Data: invalid type: null, expected internally tagged enum ResolvedUiBlock at line 1 column 5",
+      "input": "null",
+      "str, slice, reader": "err Data: invalid type: null, expected internally tagged enum ResolvedUiBlock at line 1 column 4",
+      "value, value ref, array value": "err Data: invalid type: null, expected internally tagged enum ResolvedUiBlock"
+    },
+    "people": {
+      "array str, array value": "ok [{\"kind\":\"people\",\"groups\":[{\"label\":\"Going\",\"userIds\":[\"u1\",\"u2\"],\"count\":2,\"tone\":\"success\"},{\"label\":\"Maybe\",\"userIds\":[],\"count\":0}]}]",
+      "input": "{\"kind\":\"people\",\"groups\":[{\"label\":\"Going\",\"userIds\":[\"u1\",\"u2\"],\"count\":2,\"tone\":\"success\"},{\"label\":\"Maybe\",\"userIds\":[],\"count\":0}]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"people\",\"groups\":[{\"label\":\"Going\",\"userIds\":[\"u1\",\"u2\"],\"count\":2,\"tone\":\"success\"},{\"label\":\"Maybe\",\"userIds\":[],\"count\":0}]}"
+    },
+    "progress": {
+      "array str, array value": "ok [{\"kind\":\"progress\",\"label\":\"Raised\",\"value\":5,\"total\":10,\"percent\":50}]",
+      "input": "{\"kind\":\"progress\",\"label\":\"Raised\",\"value\":5,\"total\":10,\"percent\":50}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"progress\",\"label\":\"Raised\",\"value\":5,\"total\":10,\"percent\":50}"
+    },
+    "rows": {
+      "array str, array value": "ok [{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[{\"label\":\"Name\",\"format\":\"text\"},{\"label\":\"At\",\"format\":\"time\"}],\"rows\":[{\"key\":\"r1\",\"cells\":[{\"text\":\"A\"},{\"text\":\"t\",\"timeMs\":5}],\"actions\":[{\"id\":\"open\",\"input\":{\"id\":\"r1\",\"n\":[1,2.5,null,true]}}],\"detailInput\":{\"id\":\"r1\"},\"badge\":{\"text\":\"New\",\"tone\":\"info\"}}],\"nextCursor\":\"c2\",\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"},\"input\":{}},{\"id\":\"pick\",\"label\":\"Pick\",\"target\":{\"kind\":\"native\",\"capability\":\"selectImage\"},\"input\":{}}],\"emptyText\":\"Nothing\",\"filters\":[]}]",
+      "input": "{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[{\"label\":\"Name\",\"format\":\"text\"},{\"label\":\"At\",\"format\":\"time\"}],\"rows\":[{\"key\":\"r1\",\"cells\":[{\"text\":\"A\"},{\"text\":\"t\",\"timeMs\":5}],\"actions\":[{\"id\":\"open\",\"input\":{\"id\":\"r1\",\"n\":[1,2.5,null,true]}}],\"detailInput\":{\"id\":\"r1\"},\"badge\":{\"text\":\"New\",\"tone\":\"info\"}}],\"nextCursor\":\"c2\",\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"}},{\"id\":\"pick\",\"label\":\"Pick\",\"target\":{\"kind\":\"native\",\"capability\":\"selectImage\"}}],\"emptyText\":\"Nothing\",\"filters\":[]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"rows\",\"source\":\"list\",\"columns\":[{\"label\":\"Name\",\"format\":\"text\"},{\"label\":\"At\",\"format\":\"time\"}],\"rows\":[{\"key\":\"r1\",\"cells\":[{\"text\":\"A\"},{\"text\":\"t\",\"timeMs\":5}],\"actions\":[{\"id\":\"open\",\"input\":{\"id\":\"r1\",\"n\":[1,2.5,null,true]}}],\"detailInput\":{\"id\":\"r1\"},\"badge\":{\"text\":\"New\",\"tone\":\"info\"}}],\"nextCursor\":\"c2\",\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"},\"input\":{}},{\"id\":\"pick\",\"label\":\"Pick\",\"target\":{\"kind\":\"native\",\"capability\":\"selectImage\"},\"input\":{}}],\"emptyText\":\"Nothing\",\"filters\":[]}"
+    },
+    "rows with a duplicate key in a free-form value": {
+      "array str, array value": "ok [{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[{\"key\":\"r1\",\"cells\":[],\"actions\":[{\"id\":\"open\",\"input\":{\"id\":\"b\"}}]}],\"actions\":[]}]",
+      "input": "{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[{\"key\":\"r1\",\"cells\":[],\"actions\":[{\"id\":\"open\",\"input\":{\"id\":\"a\",\"id\":\"b\"}}]}],\"actions\":[]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[{\"key\":\"r1\",\"cells\":[],\"actions\":[{\"id\":\"open\",\"input\":{\"id\":\"b\"}}]}],\"actions\":[]}"
+    },
+    "status": {
+      "array str, array value": "ok [{\"kind\":\"status\",\"label\":\"State\",\"text\":\"Open\",\"tone\":\"info\"}]",
+      "input": "{\"kind\":\"status\",\"label\":\"State\",\"text\":\"Open\",\"tone\":\"info\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"status\",\"label\":\"State\",\"text\":\"Open\",\"tone\":\"info\"}"
+    },
+    "string": {
+      "array str": "err Data: invalid type: string \"text\", expected internally tagged enum ResolvedUiBlock at line 1 column 7",
+      "input": "\"text\"",
+      "str, slice, reader": "err Data: invalid type: string \"text\", expected internally tagged enum ResolvedUiBlock at line 1 column 6",
+      "value, value ref, array value": "err Data: invalid type: string \"text\", expected internally tagged enum ResolvedUiBlock"
+    },
+    "syntax error after a type error": {
+      "array str": "err Syntax: expected `,` or `}` at line 1 column 26",
+      "input": "{\"kind\":\"text\",\"text\":5 x}",
+      "str, slice, reader": "err Syntax: expected `,` or `}` at line 1 column 25",
+      "value, value ref, array value": "not JSON: expected `,` or `}` at line 1 column 25"
+    },
+    "text": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\",\"style\":\"body\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"Hello\",\"style\":\"body\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\",\"style\":\"body\"}"
+    },
+    "text with lines": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":4,\"style\":\"title\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":4,\"style\":\"title\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":4,\"style\":\"title\"}"
+    },
+    "time": {
+      "array str, array value": "ok [{\"kind\":\"time\",\"label\":\"Ends\",\"atMs\":1700000000000,\"endMs\":1700000600000,\"countdown\":true}]",
+      "input": "{\"kind\":\"time\",\"label\":\"Ends\",\"atMs\":1700000000000,\"endMs\":1700000600000,\"countdown\":true}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"time\",\"label\":\"Ends\",\"atMs\":1700000000000,\"endMs\":1700000600000,\"countdown\":true}"
+    },
+    "time before the epoch": {
+      "array str, array value": "ok [{\"kind\":\"time\",\"atMs\":-5,\"countdown\":false}]",
+      "input": "{\"kind\":\"time\",\"atMs\":-5,\"countdown\":false}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"time\",\"atMs\":-5,\"countdown\":false}"
+    },
+    "trailing comma": {
+      "array str": "err Syntax: trailing comma at line 1 column 17",
+      "input": "{\"kind\":\"text\",}",
+      "str, slice, reader": "err Syntax: trailing comma at line 1 column 16",
+      "value, value ref, array value": "not JSON: trailing comma at line 1 column 16"
+    },
+    "trailing garbage": {
+      "array str": "err Syntax: expected `,` or `]` at line 1 column 29",
+      "input": "{\"kind\":\"note\",\"text\":\"x\"} x",
+      "str, slice, reader": "err Syntax: trailing characters at line 1 column 28",
+      "value, value ref, array value": "not JSON: trailing characters at line 1 column 28"
+    },
+    "truncated": {
+      "array str": "err Syntax: expected `,` or `}` at line 1 column 27",
+      "input": "{\"kind\":\"text\",\"text\":\"x\"",
+      "str, slice, reader": "err Eof: EOF while parsing an object at line 1 column 25",
+      "value, value ref, array value": "not JSON: EOF while parsing an object at line 1 column 25"
+    },
+    "unknown field": {
+      "array str": "err Data: unknown field `bogus`, there are no fields at line 1 column 30",
+      "input": "{\"kind\":\"divider\",\"bogus\":1}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown field `bogus`, there are no fields"
+    },
+    "unknown field in a nested action target": {
+      "array str": "err Data: unknown field `operation`, expected `page` or `pluginId` at line 1 column 149",
+      "input": "{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"page\",\"page\":\"p\",\"operation\":\"x\"}}]}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown field `operation`, expected `page` or `pluginId`"
+    },
+    "unknown kind": {
+      "array str": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 16",
+      "input": "{\"kind\":\"bogus\"}",
+      "str, slice, reader": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 15",
+      "value, value ref, array value": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows`"
+    },
+    "unknown nested action target": {
+      "array str": "err Data: unknown variant `url`, expected one of `operation`, `page`, `native` at line 1 column 139",
+      "input": "{\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"url\",\"url\":\"https://x\"}}]}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown variant `url`, expected one of `operation`, `page`, `native`"
+    },
+    "wrong field type": {
+      "array str": "err Data: invalid type: string \"5\", expected u64 at line 1 column 57",
+      "input": "{\"kind\":\"progress\",\"value\":\"5\",\"total\":10,\"percent\":50}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: string \"5\", expected u64"
+    }
+  },
+  "UiActionTarget": {
+    "array form": {
+      "array str, array value": "ok [{\"kind\":\"operation\",\"operation\":\"x.op\"}]",
+      "input": "[\"operation\",\"x.op\"]",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"operation\",\"operation\":\"x.op\"}"
+    },
+    "array form missing a field": {
+      "array str": "err Data: invalid length 0, expected struct variant UiActionTarget::Page with 2 elements at line 1 column 10",
+      "input": "[\"page\"]",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 0, expected struct variant UiActionTarget::Page with 2 elements"
+    },
+    "array form of a page": {
+      "array str, array value": "ok [{\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"}]",
+      "input": "[\"page\",\"detail\",\"x.other\"]",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"}"
+    },
+    "array form with an extra element": {
+      "array str": "err Data: invalid length 2, expected 1 element in sequence at line 1 column 23",
+      "input": "[\"operation\",\"a\",\"b\"]",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 2, expected 1 element in sequence"
+    },
+    "array with a number kind": {
+      "input": "[1]",
+      "reader, array str": "err Data: invalid type: integer `1`, expected variant identifier at line 1 column 3",
+      "str, slice": "err Data: invalid type: integer `1`, expected variant identifier at line 1 column 2",
+      "value, value ref, array value": "err Data: invalid type: integer `1`, expected variant identifier"
+    },
+    "array with an unknown kind": {
+      "array str": "err Data: unknown variant `bogus`, expected one of `operation`, `page`, `native` at line 1 column 9",
+      "input": "[\"bogus\"]",
+      "str, slice, reader": "err Data: unknown variant `bogus`, expected one of `operation`, `page`, `native` at line 1 column 8",
+      "value, value ref, array value": "err Data: unknown variant `bogus`, expected one of `operation`, `page`, `native`"
+    },
+    "bool": {
+      "array str": "err Data: invalid type: boolean `true`, expected internally tagged enum UiActionTarget at line 1 column 5",
+      "input": "true",
+      "str, slice, reader": "err Data: invalid type: boolean `true`, expected internally tagged enum UiActionTarget at line 1 column 4",
+      "value, value ref, array value": "err Data: invalid type: boolean `true`, expected internally tagged enum UiActionTarget"
+    },
+    "capability as a map": {
+      "array str, array value": "ok [{\"kind\":\"native\",\"capability\":\"camera\"}]",
+      "input": "{\"kind\":\"native\",\"capability\":{\"camera\":null}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"native\",\"capability\":\"camera\"}"
+    },
+    "capability as a map with an empty object": {
+      "array str, array value": "ok [{\"kind\":\"native\",\"capability\":\"camera\"}]",
+      "input": "{\"kind\":\"native\",\"capability\":{\"camera\":{}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"native\",\"capability\":\"camera\"}"
+    },
+    "duplicate field": {
+      "array str": "err Data: duplicate field `operation` at line 1 column 54",
+      "array value": "ok [{\"kind\":\"operation\",\"operation\":\"b\"}]",
+      "input": "{\"kind\":\"operation\",\"operation\":\"a\",\"operation\":\"b\"}",
+      "str, slice, reader": "err Data: duplicate field `operation`",
+      "value, value ref": "ok {\"kind\":\"operation\",\"operation\":\"b\"}"
+    },
+    "duplicate kind": {
+      "array value": "ok [{\"kind\":\"operation\",\"operation\":\"x\"}]",
+      "input": "{\"kind\":\"operation\",\"kind\":\"operation\",\"operation\":\"x\"}",
+      "reader, array str": "err Data: duplicate field `kind` at line 1 column 27",
+      "str, slice": "err Data: duplicate field `kind` at line 1 column 26",
+      "value, value ref": "ok {\"kind\":\"operation\",\"operation\":\"x\"}"
+    },
+    "empty array": {
+      "array str": "err Data: missing field `kind` at line 1 column 3",
+      "input": "[]",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 2",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "empty object": {
+      "array str": "err Data: missing field `kind` at line 1 column 3",
+      "input": "{}",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 2",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "eof after a type error": {
+      "array str": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 15",
+      "input": "{\"kind\":\"text\",\"text\":5,",
+      "str, slice, reader": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 14",
+      "value, value ref, array value": "not JSON: EOF while parsing a value at line 1 column 24"
+    },
+    "float": {
+      "array str": "err Data: invalid type: floating point `1.5`, expected internally tagged enum UiActionTarget at line 1 column 4",
+      "input": "1.5",
+      "str, slice, reader": "err Data: invalid type: floating point `1.5`, expected internally tagged enum UiActionTarget at line 1 column 3",
+      "value, value ref, array value": "err Data: invalid type: floating point `1.5`, expected internally tagged enum UiActionTarget"
+    },
+    "integer": {
+      "array str": "err Data: invalid type: integer `1`, expected internally tagged enum UiActionTarget at line 1 column 2",
+      "input": "1",
+      "str, slice, reader": "err Data: invalid type: integer `1`, expected internally tagged enum UiActionTarget at line 1 column 1",
+      "value, value ref, array value": "err Data: invalid type: integer `1`, expected internally tagged enum UiActionTarget"
+    },
+    "kind in another case": {
+      "array str": "err Data: unknown variant `Text`, expected one of `operation`, `page`, `native` at line 1 column 15",
+      "input": "{\"kind\":\"Text\"}",
+      "str, slice, reader": "err Data: unknown variant `Text`, expected one of `operation`, `page`, `native` at line 1 column 14",
+      "value, value ref, array value": "err Data: unknown variant `Text`, expected one of `operation`, `page`, `native`"
+    },
+    "kind is a bool": {
+      "array str": "err Data: invalid type: boolean `true`, expected variant identifier at line 1 column 13",
+      "input": "{\"kind\":true}",
+      "str, slice, reader": "err Data: invalid type: boolean `true`, expected variant identifier at line 1 column 12",
+      "value, value ref, array value": "err Data: invalid type: boolean `true`, expected variant identifier"
+    },
+    "kind is a number": {
+      "input": "{\"kind\":0}",
+      "reader, array str": "err Data: invalid type: integer `0`, expected variant identifier at line 1 column 10",
+      "str, slice": "err Data: invalid type: integer `0`, expected variant identifier at line 1 column 9",
+      "value, value ref, array value": "err Data: invalid type: integer `0`, expected variant identifier"
+    },
+    "kind is an array": {
+      "input": "{\"kind\":[\"text\"]}",
+      "reader, array str": "err Data: invalid type: sequence, expected variant identifier at line 1 column 9",
+      "str, slice": "err Data: invalid type: sequence, expected variant identifier at line 1 column 8",
+      "value, value ref, array value": "err Data: invalid type: sequence, expected variant identifier"
+    },
+    "kind is an object": {
+      "input": "{\"kind\":{}}",
+      "reader, array str": "err Data: invalid type: map, expected variant identifier at line 1 column 9",
+      "str, slice": "err Data: invalid type: map, expected variant identifier at line 1 column 8",
+      "value, value ref, array value": "err Data: invalid type: map, expected variant identifier"
+    },
+    "kind is null": {
+      "array str": "err Data: invalid type: null, expected variant identifier at line 1 column 13",
+      "input": "{\"kind\":null}",
+      "str, slice, reader": "err Data: invalid type: null, expected variant identifier at line 1 column 12",
+      "value, value ref, array value": "err Data: invalid type: null, expected variant identifier"
+    },
+    "kind last": {
+      "array str, array value": "ok [{\"kind\":\"operation\",\"operation\":\"x.op\"}]",
+      "input": "{\"operation\":\"x.op\",\"kind\":\"operation\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"operation\",\"operation\":\"x.op\"}"
+    },
+    "missing field": {
+      "array str": "err Data: missing field `operation` at line 1 column 22",
+      "input": "{\"kind\":\"operation\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: missing field `operation`"
+    },
+    "native": {
+      "array str, array value": "ok [{\"kind\":\"native\",\"capability\":\"selectImage\"}]",
+      "input": "{\"kind\":\"native\",\"capability\":\"selectImage\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"native\",\"capability\":\"selectImage\"}"
+    },
+    "negative integer": {
+      "array str": "err Data: invalid type: integer `-1`, expected internally tagged enum UiActionTarget at line 1 column 3",
+      "input": "-1",
+      "str, slice, reader": "err Data: invalid type: integer `-1`, expected internally tagged enum UiActionTarget at line 1 column 2",
+      "value, value ref, array value": "err Data: invalid type: integer `-1`, expected internally tagged enum UiActionTarget"
+    },
+    "no kind": {
+      "array str": "err Data: missing field `kind` at line 1 column 13",
+      "input": "{\"text\":\"x\"}",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 12",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "null": {
+      "array str": "err Data: invalid type: null, expected internally tagged enum UiActionTarget at line 1 column 5",
+      "input": "null",
+      "str, slice, reader": "err Data: invalid type: null, expected internally tagged enum UiActionTarget at line 1 column 4",
+      "value, value ref, array value": "err Data: invalid type: null, expected internally tagged enum UiActionTarget"
+    },
+    "operation": {
+      "array str, array value": "ok [{\"kind\":\"operation\",\"operation\":\"x.op\"}]",
+      "input": "{\"kind\":\"operation\",\"operation\":\"x.op\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"operation\",\"operation\":\"x.op\"}"
+    },
+    "page": {
+      "array str, array value": "ok [{\"kind\":\"page\",\"page\":\"detail\"}]",
+      "input": "{\"kind\":\"page\",\"page\":\"detail\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"page\",\"page\":\"detail\"}"
+    },
+    "page of another plugin": {
+      "array str, array value": "ok [{\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"}]",
+      "input": "{\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":\"x.other\"}"
+    },
+    "page with a null plugin": {
+      "array str, array value": "ok [{\"kind\":\"page\",\"page\":\"detail\"}]",
+      "input": "{\"kind\":\"page\",\"page\":\"detail\",\"pluginId\":null}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"page\",\"page\":\"detail\"}"
+    },
+    "snake case field": {
+      "array str": "err Data: unknown field `plugin_id`, expected `page` or `pluginId` at line 1 column 44",
+      "input": "{\"kind\":\"page\",\"page\":\"p\",\"plugin_id\":\"x\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown field `plugin_id`, expected `page` or `pluginId`"
+    },
+    "string": {
+      "array str": "err Data: invalid type: string \"text\", expected internally tagged enum UiActionTarget at line 1 column 7",
+      "input": "\"text\"",
+      "str, slice, reader": "err Data: invalid type: string \"text\", expected internally tagged enum UiActionTarget at line 1 column 6",
+      "value, value ref, array value": "err Data: invalid type: string \"text\", expected internally tagged enum UiActionTarget"
+    },
+    "syntax error after a type error": {
+      "array str": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 15",
+      "input": "{\"kind\":\"text\",\"text\":5 x}",
+      "str, slice, reader": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 14",
+      "value, value ref, array value": "not JSON: expected `,` or `}` at line 1 column 25"
+    },
+    "trailing comma": {
+      "array str": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 15",
+      "input": "{\"kind\":\"text\",}",
+      "str, slice, reader": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 14",
+      "value, value ref, array value": "not JSON: trailing comma at line 1 column 16"
+    },
+    "trailing garbage": {
+      "array str": "err Data: unknown variant `note`, expected one of `operation`, `page`, `native` at line 1 column 15",
+      "input": "{\"kind\":\"note\",\"text\":\"x\"} x",
+      "str, slice, reader": "err Data: unknown variant `note`, expected one of `operation`, `page`, `native` at line 1 column 14",
+      "value, value ref, array value": "not JSON: trailing characters at line 1 column 28"
+    },
+    "truncated": {
+      "array str": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 15",
+      "input": "{\"kind\":\"text\",\"text\":\"x\"",
+      "str, slice, reader": "err Data: unknown variant `text`, expected one of `operation`, `page`, `native` at line 1 column 14",
+      "value, value ref, array value": "not JSON: EOF while parsing an object at line 1 column 25"
+    },
+    "unknown capability": {
+      "array str": "err Data: unknown variant `selectimage`, expected one of `selectImage`, `selectFile`, `camera`, `microphone`, `clipboardWrite` at line 1 column 46",
+      "input": "{\"kind\":\"native\",\"capability\":\"selectimage\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown variant `selectimage`, expected one of `selectImage`, `selectFile`, `camera`, `microphone`, `clipboardWrite`"
+    },
+    "unknown field": {
+      "array str": "err Data: unknown field `page`, expected `operation` at line 1 column 52",
+      "input": "{\"kind\":\"operation\",\"operation\":\"x.op\",\"page\":\"p\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown field `page`, expected `operation`"
+    },
+    "unknown kind": {
+      "array str": "err Data: unknown variant `bogus`, expected one of `operation`, `page`, `native` at line 1 column 16",
+      "input": "{\"kind\":\"bogus\"}",
+      "str, slice, reader": "err Data: unknown variant `bogus`, expected one of `operation`, `page`, `native` at line 1 column 15",
+      "value, value ref, array value": "err Data: unknown variant `bogus`, expected one of `operation`, `page`, `native`"
+    }
+  },
+  "UiBlock": {
+    "array form": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\"}]",
+      "input": "[\"text\",\"Hello\"]",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\"}"
+    },
+    "array form missing a required field": {
+      "array str": "err Data: invalid length 0, expected struct UiFieldsBlock with 2 elements at line 1 column 12",
+      "input": "[\"fields\"]",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 0, expected struct UiFieldsBlock with 2 elements"
+    },
+    "array form with a wrong type": {
+      "array str": "err Data: invalid type: integer `5`, expected a string at line 1 column 12",
+      "input": "[\"text\",5]",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: integer `5`, expected a string"
+    },
+    "array form with an extra element": {
+      "array str": "err Data: invalid length 6, expected 5 elements in sequence at line 1 column 44",
+      "input": "[\"text\",\"Hello\",null,2,\"title\",[],\"extra\"]",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 6, expected 5 elements in sequence"
+    },
+    "array form with every field": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":2,\"style\":\"title\"}]",
+      "input": "[\"text\",\"Hello\",null,2,\"title\",[]]",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":2,\"style\":\"title\"}"
+    },
+    "array form with only the kind": {
+      "array str, array value": "ok [{\"kind\":\"divider\"}]",
+      "input": "[\"divider\"]",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"divider\"}"
+    },
+    "array with a number kind": {
+      "input": "[1]",
+      "reader, array str": "err Data: invalid type: integer `1`, expected variant identifier at line 1 column 3",
+      "str, slice": "err Data: invalid type: integer `1`, expected variant identifier at line 1 column 2",
+      "value, value ref, array value": "err Data: invalid type: integer `1`, expected variant identifier"
+    },
+    "array with an unknown kind": {
+      "array str": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 9",
+      "input": "[\"bogus\"]",
+      "str, slice, reader": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 8",
+      "value, value ref, array value": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows`"
+    },
+    "bool": {
+      "array str": "err Data: invalid type: boolean `true`, expected internally tagged enum UiBlock at line 1 column 5",
+      "input": "true",
+      "str, slice, reader": "err Data: invalid type: boolean `true`, expected internally tagged enum UiBlock at line 1 column 4",
+      "value, value ref, array value": "err Data: invalid type: boolean `true`, expected internally tagged enum UiBlock"
+    },
+    "choices declared": {
+      "array str, array value": "ok [{\"kind\":\"choices\",\"options\":[{\"label\":\"Yes\"},{\"label\":\"No\"}],\"showResults\":\"closed\"}]",
+      "input": "{\"kind\":\"choices\",\"options\":[{\"label\":\"Yes\"},{\"label\":\"No\"}],\"showResults\":\"closed\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"choices\",\"options\":[{\"label\":\"Yes\"},{\"label\":\"No\"}],\"showResults\":\"closed\"}"
+    },
+    "choices from data": {
+      "array str, array value": "ok [{\"kind\":\"choices\",\"optionsPath\":\"/options\",\"labelPath\":\"/label\",\"countsPath\":\"/counts\",\"selectedPath\":\"/mine\",\"totalPath\":\"/voters\",\"multiplePath\":\"/multi\",\"maxSelectionsPath\":\"/max\",\"showResults\":\"always\",\"closedWhen\":[{\"path\":\"/closed\",\"exists\":true}],\"action\":\"vote\",\"inputName\":\"selection\"}]",
+      "input": "{\"kind\":\"choices\",\"optionsPath\":\"/options\",\"labelPath\":\"/label\",\"countsPath\":\"/counts\",\"selectedPath\":\"/mine\",\"totalPath\":\"/voters\",\"multiplePath\":\"/multi\",\"maxSelectionsPath\":\"/max\",\"showResults\":\"always\",\"closedWhen\":[{\"path\":\"/closed\",\"exists\":true}],\"action\":\"vote\",\"inputName\":\"selection\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"choices\",\"optionsPath\":\"/options\",\"labelPath\":\"/label\",\"countsPath\":\"/counts\",\"selectedPath\":\"/mine\",\"totalPath\":\"/voters\",\"multiplePath\":\"/multi\",\"maxSelectionsPath\":\"/max\",\"showResults\":\"always\",\"closedWhen\":[{\"path\":\"/closed\",\"exists\":true}],\"action\":\"vote\",\"inputName\":\"selection\"}"
+    },
+    "divider": {
+      "array str, array value": "ok [{\"kind\":\"divider\"}]",
+      "input": "{\"kind\":\"divider\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"divider\"}"
+    },
+    "divider hidden": {
+      "array str, array value": "ok [{\"kind\":\"divider\",\"hiddenWhen\":[{\"path\":\"/x\",\"anyOf\":[\"1\"]}]}]",
+      "input": "{\"kind\":\"divider\",\"hiddenWhen\":[{\"path\":\"/x\",\"anyOf\":[\"1\"]}]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"divider\",\"hiddenWhen\":[{\"path\":\"/x\",\"anyOf\":[\"1\"]}]}"
+    },
+    "duplicate field": {
+      "array str": "err Data: duplicate field `text` at line 1 column 39",
+      "array value": "ok [{\"kind\":\"text\",\"text\":\"b\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"a\",\"text\":\"b\"}",
+      "str, slice, reader": "err Data: duplicate field `text`",
+      "value, value ref": "ok {\"kind\":\"text\",\"text\":\"b\"}"
+    },
+    "duplicate field before the kind": {
+      "array str": "err Data: duplicate field `text` at line 1 column 39",
+      "array value": "ok [{\"kind\":\"text\",\"text\":\"b\"}]",
+      "input": "{\"text\":\"a\",\"text\":\"b\",\"kind\":\"text\"}",
+      "str, slice, reader": "err Data: duplicate field `text`",
+      "value, value ref": "ok {\"kind\":\"text\",\"text\":\"b\"}"
+    },
+    "duplicate field in a nested struct": {
+      "array str": "err Data: duplicate field `path` at line 1 column 69",
+      "array value": "ok [{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[{\"path\":\"/b\"}]}]",
+      "input": "{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[{\"path\":\"/a\",\"path\":\"/b\"}]}",
+      "str, slice, reader": "err Data: duplicate field `path`",
+      "value, value ref": "ok {\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[{\"path\":\"/b\"}]}"
+    },
+    "duplicate key in a nested map": {
+      "array str, array value": "ok [{\"kind\":\"status\",\"path\":\"/s\",\"values\":{\"a\":{\"label\":\"B\"}}}]",
+      "input": "{\"kind\":\"status\",\"path\":\"/s\",\"values\":{\"a\":{\"label\":\"A\"},\"a\":{\"label\":\"B\"}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"status\",\"path\":\"/s\",\"values\":{\"a\":{\"label\":\"B\"}}}"
+    },
+    "duplicate kind": {
+      "array value": "ok [{\"kind\":\"text\",\"text\":\"x\"}]",
+      "input": "{\"kind\":\"text\",\"kind\":\"text\",\"text\":\"x\"}",
+      "reader, array str": "err Data: duplicate field `kind` at line 1 column 22",
+      "str, slice": "err Data: duplicate field `kind` at line 1 column 21",
+      "value, value ref": "ok {\"kind\":\"text\",\"text\":\"x\"}"
+    },
+    "duplicate kind with another value": {
+      "array value": "ok [{\"kind\":\"note\",\"text\":\"x\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"kind\":\"note\"}",
+      "reader, array str": "err Data: duplicate field `kind` at line 1 column 33",
+      "str, slice": "err Data: duplicate field `kind` at line 1 column 32",
+      "value, value ref": "ok {\"kind\":\"note\",\"text\":\"x\"}"
+    },
+    "empty array": {
+      "array str": "err Data: missing field `kind` at line 1 column 3",
+      "input": "[]",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 2",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "empty object": {
+      "array str": "err Data: missing field `kind` at line 1 column 3",
+      "input": "{}",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 2",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "entries": {
+      "array str, array value": "ok [{\"kind\":\"entries\",\"itemsPath\":\"/lines\",\"textPath\":\"/text\",\"namePath\":\"/name\",\"userPath\":\"/user\",\"userIdsPath\":\"/ids\",\"numbered\":false,\"limit\":5,\"countPath\":\"/count\",\"emptyText\":\"None\",\"groupPath\":\"/g\",\"groupLabelPath\":\"/gl\",\"groupCountPath\":\"/gc\",\"groupTotalPath\":\"/gt\",\"valueLabels\":{\"path\":\"/state\",\"values\":{\"done\":{\"label\":\"Done\",\"tone\":\"success\"},\"open\":{\"label\":\"Open\"}}}}]",
+      "input": "{\"kind\":\"entries\",\"itemsPath\":\"/lines\",\"textPath\":\"/text\",\"namePath\":\"/name\",\"userPath\":\"/user\",\"userIdsPath\":\"/ids\",\"numbered\":false,\"limit\":5,\"countPath\":\"/count\",\"emptyText\":\"None\",\"groupPath\":\"/g\",\"groupLabelPath\":\"/gl\",\"groupCountPath\":\"/gc\",\"groupTotalPath\":\"/gt\",\"valueLabels\":{\"path\":\"/state\",\"values\":{\"done\":{\"label\":\"Done\",\"tone\":\"success\"},\"open\":{\"label\":\"Open\"}}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"entries\",\"itemsPath\":\"/lines\",\"textPath\":\"/text\",\"namePath\":\"/name\",\"userPath\":\"/user\",\"userIdsPath\":\"/ids\",\"numbered\":false,\"limit\":5,\"countPath\":\"/count\",\"emptyText\":\"None\",\"groupPath\":\"/g\",\"groupLabelPath\":\"/gl\",\"groupCountPath\":\"/gc\",\"groupTotalPath\":\"/gt\",\"valueLabels\":{\"path\":\"/state\",\"values\":{\"done\":{\"label\":\"Done\",\"tone\":\"success\"},\"open\":{\"label\":\"Open\"}}}}"
+    },
+    "entries numbered": {
+      "array str, array value": "ok [{\"kind\":\"entries\",\"itemsPath\":\"/lines\"}]",
+      "input": "{\"kind\":\"entries\",\"itemsPath\":\"/lines\",\"numbered\":true}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"entries\",\"itemsPath\":\"/lines\"}"
+    },
+    "enum value as a map": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"style\":{\"title\":null}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}"
+    },
+    "enum value as a map with an empty array": {
+      "array str": "err Data: invalid type: sequence, expected unit at line 1 column 49",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"style\":{\"title\":[]}}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: sequence, expected unit"
+    },
+    "enum value as a map with an empty object": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"style\":{\"title\":{}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}"
+    },
+    "enum value as a map with two keys": {
+      "array str": "err Data: invalid value: map, expected map with a single key at line 1 column 63",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"style\":{\"title\":null,\"body\":null}}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid value: map, expected map with a single key"
+    },
+    "enum value as a number": {
+      "array str": "err Data: invalid type: integer `0`, expected string or map at line 1 column 38",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"style\":0}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: integer `0`, expected string or map"
+    },
+    "eof after a type error": {
+      "array str": "err Syntax: key must be a string at line 1 column 26",
+      "input": "{\"kind\":\"text\",\"text\":5,",
+      "str, slice, reader": "err Eof: EOF while parsing a value at line 1 column 24",
+      "value, value ref, array value": "not JSON: EOF while parsing a value at line 1 column 24"
+    },
+    "escaped kind key": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"Hello\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\"}"
+    },
+    "escaped kind value": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"Hello\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\"}"
+    },
+    "field of another kind": {
+      "array str": "err Data: unknown field `itemsPath`, expected one of `text`, `path`, `tone`, `hiddenWhen` at line 1 column 34",
+      "input": "{\"kind\":\"note\",\"itemsPath\":\"/x\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown field `itemsPath`, expected one of `text`, `path`, `tone`, `hiddenWhen`"
+    },
+    "fields": {
+      "array str, array value": "ok [{\"kind\":\"fields\",\"fields\":[{\"label\":\"Amount\",\"path\":\"/amount\",\"values\":{\"1\":\"one\",\"2\":\"two\"}}]}]",
+      "input": "{\"kind\":\"fields\",\"fields\":[{\"label\":\"Amount\",\"path\":\"/amount\",\"values\":{\"1\":\"one\",\"2\":\"two\"}}]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"fields\",\"fields\":[{\"label\":\"Amount\",\"path\":\"/amount\",\"values\":{\"1\":\"one\",\"2\":\"two\"}}]}"
+    },
+    "float": {
+      "array str": "err Data: invalid type: floating point `1.5`, expected internally tagged enum UiBlock at line 1 column 4",
+      "input": "1.5",
+      "str, slice, reader": "err Data: invalid type: floating point `1.5`, expected internally tagged enum UiBlock at line 1 column 3",
+      "value, value ref, array value": "err Data: invalid type: floating point `1.5`, expected internally tagged enum UiBlock"
+    },
+    "float for u8": {
+      "array str": "err Data: invalid type: floating point `1.0`, expected u8 at line 1 column 43",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"maxLines\":1.0}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: floating point `1.0`, expected u8"
+    },
+    "huge integer": {
+      "array str": "err Data: invalid type: floating point `1.8446744073709552e+19`, expected u8 at line 1 column 60",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"maxLines\":18446744073709551616}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: floating point `1.8446744073709552e+19`, expected u8"
+    },
+    "integer": {
+      "array str": "err Data: invalid type: integer `1`, expected internally tagged enum UiBlock at line 1 column 2",
+      "input": "1",
+      "str, slice, reader": "err Data: invalid type: integer `1`, expected internally tagged enum UiBlock at line 1 column 1",
+      "value, value ref, array value": "err Data: invalid type: integer `1`, expected internally tagged enum UiBlock"
+    },
+    "kind between fields": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":2}]",
+      "input": "{\"text\":\"Hello\",\"kind\":\"text\",\"maxLines\":2}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":2}"
+    },
+    "kind in another case": {
+      "array str": "err Data: unknown variant `Text`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 15",
+      "input": "{\"kind\":\"Text\"}",
+      "str, slice, reader": "err Data: unknown variant `Text`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 14",
+      "value, value ref, array value": "err Data: unknown variant `Text`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows`"
+    },
+    "kind is a bool": {
+      "array str": "err Data: invalid type: boolean `true`, expected variant identifier at line 1 column 13",
+      "input": "{\"kind\":true}",
+      "str, slice, reader": "err Data: invalid type: boolean `true`, expected variant identifier at line 1 column 12",
+      "value, value ref, array value": "err Data: invalid type: boolean `true`, expected variant identifier"
+    },
+    "kind is a number": {
+      "input": "{\"kind\":0}",
+      "reader, array str": "err Data: invalid type: integer `0`, expected variant identifier at line 1 column 10",
+      "str, slice": "err Data: invalid type: integer `0`, expected variant identifier at line 1 column 9",
+      "value, value ref, array value": "err Data: invalid type: integer `0`, expected variant identifier"
+    },
+    "kind is an array": {
+      "input": "{\"kind\":[\"text\"]}",
+      "reader, array str": "err Data: invalid type: sequence, expected variant identifier at line 1 column 9",
+      "str, slice": "err Data: invalid type: sequence, expected variant identifier at line 1 column 8",
+      "value, value ref, array value": "err Data: invalid type: sequence, expected variant identifier"
+    },
+    "kind is an object": {
+      "input": "{\"kind\":{}}",
+      "reader, array str": "err Data: invalid type: map, expected variant identifier at line 1 column 9",
+      "str, slice": "err Data: invalid type: map, expected variant identifier at line 1 column 8",
+      "value, value ref, array value": "err Data: invalid type: map, expected variant identifier"
+    },
+    "kind is null": {
+      "array str": "err Data: invalid type: null, expected variant identifier at line 1 column 13",
+      "input": "{\"kind\":null}",
+      "str, slice, reader": "err Data: invalid type: null, expected variant identifier at line 1 column 12",
+      "value, value ref, array value": "err Data: invalid type: null, expected variant identifier"
+    },
+    "kind last": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\",\"style\":\"secondary\"}]",
+      "input": "{\"text\":\"Hello\",\"style\":\"secondary\",\"kind\":\"text\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\",\"style\":\"secondary\"}"
+    },
+    "missing required field": {
+      "array str": "err Data: missing field `fields` at line 1 column 19",
+      "input": "{\"kind\":\"fields\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: missing field `fields`"
+    },
+    "negative integer": {
+      "array str": "err Data: invalid type: integer `-1`, expected internally tagged enum UiBlock at line 1 column 3",
+      "input": "-1",
+      "str, slice, reader": "err Data: invalid type: integer `-1`, expected internally tagged enum UiBlock at line 1 column 2",
+      "value, value ref, array value": "err Data: invalid type: integer `-1`, expected internally tagged enum UiBlock"
+    },
+    "negative u8": {
+      "array str": "err Data: invalid value: integer `-1`, expected u8 at line 1 column 42",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"maxLines\":-1}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid value: integer `-1`, expected u8"
+    },
+    "nested struct as a short array": {
+      "array str": "err Data: invalid length 1, expected struct UiField with 3 elements at line 1 column 41",
+      "input": "{\"kind\":\"fields\",\"fields\":[[\"Amount\"]]}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 1, expected struct UiField with 3 elements"
+    },
+    "nested struct as an array": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[{\"path\":\"/a\",\"anyOf\":[\"1\"]}]}]",
+      "input": "{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[[\"/a\",[\"1\"],false,false,[],false]]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[{\"path\":\"/a\",\"anyOf\":[\"1\"]}]}"
+    },
+    "nested struct as an array with an extra element": {
+      "array str": "err Data: invalid length 7, expected 6 elements in sequence at line 1 column 85",
+      "input": "{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[[\"/a\",[\"1\"],false,false,[],false,\"extra\"]]}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid length 7, expected 6 elements in sequence"
+    },
+    "nested struct with two unknown fields": {
+      "array str": "err Data: unknown field `zzz`, expected one of `path`, `anyOf`, `viewer`, `exists`, `allOf`, `negate` at line 1 column 61",
+      "input": "{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[{\"zzz\":1,\"aaa\":2}]}",
+      "str, slice, reader": "err Data: unknown field `zzz`, expected one of `path`, `anyOf`, `viewer`, `exists`, `allOf`, `negate`",
+      "value, value ref, array value": "err Data: unknown field `aaa`, expected one of `path`, `anyOf`, `viewer`, `exists`, `allOf`, `negate`"
+    },
+    "no kind": {
+      "array str": "err Data: missing field `kind` at line 1 column 13",
+      "input": "{\"text\":\"x\"}",
+      "str, slice, reader": "err Data: missing field `kind` at line 1 column 12",
+      "value, value ref, array value": "err Data: missing field `kind`"
+    },
+    "note": {
+      "array str, array value": "ok [{\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}]",
+      "input": "{\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"note\",\"text\":\"Heads up\",\"tone\":\"warning\"}"
+    },
+    "note with null tone": {
+      "array str, array value": "ok [{\"kind\":\"note\",\"path\":\"/n\"}]",
+      "input": "{\"kind\":\"note\",\"path\":\"/n\",\"tone\":null}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"note\",\"path\":\"/n\"}"
+    },
+    "null": {
+      "array str": "err Data: invalid type: null, expected internally tagged enum UiBlock at line 1 column 5",
+      "input": "null",
+      "str, slice, reader": "err Data: invalid type: null, expected internally tagged enum UiBlock at line 1 column 4",
+      "value, value ref, array value": "err Data: invalid type: null, expected internally tagged enum UiBlock"
+    },
+    "null for a list": {
+      "array str": "err Data: invalid type: null, expected a sequence at line 1 column 38",
+      "input": "{\"kind\":\"divider\",\"hiddenWhen\":null}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: null, expected a sequence"
+    },
+    "null for an optional field": {
+      "array str, array value": "ok [{\"kind\":\"text\"}]",
+      "input": "{\"kind\":\"text\",\"text\":null}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\"}"
+    },
+    "people": {
+      "array str, array value": "ok [{\"kind\":\"people\",\"groups\":[{\"label\":\"Going\",\"usersPath\":\"/going\",\"countPath\":\"/n\",\"tone\":\"success\"},{\"label\":\"Maybe\"}],\"max\":5}]",
+      "input": "{\"kind\":\"people\",\"groups\":[{\"label\":\"Going\",\"usersPath\":\"/going\",\"countPath\":\"/n\",\"tone\":\"success\"},{\"label\":\"Maybe\"}],\"max\":5}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"people\",\"groups\":[{\"label\":\"Going\",\"usersPath\":\"/going\",\"countPath\":\"/n\",\"tone\":\"success\"},{\"label\":\"Maybe\"}],\"max\":5}"
+    },
+    "progress": {
+      "array str, array value": "ok [{\"kind\":\"progress\",\"label\":\"Raised\",\"valuePath\":\"/raised\",\"totalPath\":\"/goal\"}]",
+      "input": "{\"kind\":\"progress\",\"label\":\"Raised\",\"valuePath\":\"/raised\",\"totalPath\":\"/goal\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"progress\",\"label\":\"Raised\",\"valuePath\":\"/raised\",\"totalPath\":\"/goal\"}"
+    },
+    "rows": {
+      "array str, array value": "ok [{\"kind\":\"rows\",\"source\":\"list\",\"path\":\"/items\",\"keyPath\":\"/id\",\"columns\":[{\"label\":\"Name\",\"path\":\"/name\"},{\"label\":\"At\",\"path\":\"/at\",\"values\":{\"a\":\"b\"},\"format\":\"time\"}],\"cursorPath\":\"/next\",\"actions\":[\"open\"],\"emptyText\":\"Nothing\",\"filters\":[\"status\"],\"valueLabels\":{\"path\":\"/s\",\"values\":{\"x\":{\"label\":\"X\",\"tone\":\"danger\"}}}}]",
+      "input": "{\"kind\":\"rows\",\"source\":\"list\",\"path\":\"/items\",\"keyPath\":\"/id\",\"columns\":[{\"label\":\"Name\",\"path\":\"/name\"},{\"label\":\"At\",\"path\":\"/at\",\"format\":\"time\",\"values\":{\"a\":\"b\"}}],\"cursorPath\":\"/next\",\"actions\":[\"open\"],\"emptyText\":\"Nothing\",\"filters\":[\"status\"],\"valueLabels\":{\"path\":\"/s\",\"values\":{\"x\":{\"label\":\"X\",\"tone\":\"danger\"}}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"rows\",\"source\":\"list\",\"path\":\"/items\",\"keyPath\":\"/id\",\"columns\":[{\"label\":\"Name\",\"path\":\"/name\"},{\"label\":\"At\",\"path\":\"/at\",\"values\":{\"a\":\"b\"},\"format\":\"time\"}],\"cursorPath\":\"/next\",\"actions\":[\"open\"],\"emptyText\":\"Nothing\",\"filters\":[\"status\"],\"valueLabels\":{\"path\":\"/s\",\"values\":{\"x\":{\"label\":\"X\",\"tone\":\"danger\"}}}}"
+    },
+    "status": {
+      "array str, array value": "ok [{\"kind\":\"status\",\"label\":\"State\",\"path\":\"/state\",\"values\":{\"closed\":{\"label\":\"Closed\"},\"open\":{\"label\":\"Open\",\"tone\":\"info\"}}}]",
+      "input": "{\"kind\":\"status\",\"label\":\"State\",\"path\":\"/state\",\"values\":{\"open\":{\"label\":\"Open\",\"tone\":\"info\"},\"closed\":{\"label\":\"Closed\",\"tone\":\"neutral\"}}}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"status\",\"label\":\"State\",\"path\":\"/state\",\"values\":{\"closed\":{\"label\":\"Closed\"},\"open\":{\"label\":\"Open\",\"tone\":\"info\"}}}"
+    },
+    "string": {
+      "array str": "err Data: invalid type: string \"text\", expected internally tagged enum UiBlock at line 1 column 7",
+      "input": "\"text\"",
+      "str, slice, reader": "err Data: invalid type: string \"text\", expected internally tagged enum UiBlock at line 1 column 6",
+      "value, value ref, array value": "err Data: invalid type: string \"text\", expected internally tagged enum UiBlock"
+    },
+    "syntax error after a type error": {
+      "array str": "err Syntax: expected `,` or `}` at line 1 column 26",
+      "input": "{\"kind\":\"text\",\"text\":5 x}",
+      "str, slice, reader": "err Syntax: expected `,` or `}` at line 1 column 25",
+      "value, value ref, array value": "not JSON: expected `,` or `}` at line 1 column 25"
+    },
+    "text": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"Hello\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"Hello\"}"
+    },
+    "text with every field": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"path\":\"/title\",\"maxLines\":3,\"style\":\"title\",\"hiddenWhen\":[{\"path\":\"/closed\",\"anyOf\":[\"true\"]},{\"allOf\":[{\"path\":\"/a\",\"exists\":true},{\"path\":\"/u\",\"viewer\":true,\"negate\":true}]}]}]",
+      "input": "{\"kind\":\"text\",\"path\":\"/title\",\"maxLines\":3,\"style\":\"title\",\"hiddenWhen\":[{\"path\":\"/closed\",\"anyOf\":[\"true\"]},{\"allOf\":[{\"path\":\"/a\",\"exists\":true},{\"viewer\":true,\"path\":\"/u\",\"negate\":true}]}]}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"path\":\"/title\",\"maxLines\":3,\"style\":\"title\",\"hiddenWhen\":[{\"path\":\"/closed\",\"anyOf\":[\"true\"]},{\"allOf\":[{\"path\":\"/a\",\"exists\":true},{\"path\":\"/u\",\"viewer\":true,\"negate\":true}]}]}"
+    },
+    "time": {
+      "array str, array value": "ok [{\"kind\":\"time\",\"label\":\"Ends\",\"path\":\"/endsAt\",\"endPath\":\"/end\",\"countdown\":true}]",
+      "input": "{\"kind\":\"time\",\"label\":\"Ends\",\"path\":\"/endsAt\",\"endPath\":\"/end\",\"countdown\":true}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"time\",\"label\":\"Ends\",\"path\":\"/endsAt\",\"endPath\":\"/end\",\"countdown\":true}"
+    },
+    "trailing comma": {
+      "array str": "err Syntax: trailing comma at line 1 column 17",
+      "input": "{\"kind\":\"text\",}",
+      "str, slice, reader": "err Syntax: trailing comma at line 1 column 16",
+      "value, value ref, array value": "not JSON: trailing comma at line 1 column 16"
+    },
+    "trailing garbage": {
+      "array str": "err Syntax: expected `,` or `]` at line 1 column 29",
+      "input": "{\"kind\":\"note\",\"text\":\"x\"} x",
+      "str, slice, reader": "err Syntax: trailing characters at line 1 column 28",
+      "value, value ref, array value": "not JSON: trailing characters at line 1 column 28"
+    },
+    "truncated": {
+      "array str": "err Syntax: expected `,` or `}` at line 1 column 27",
+      "input": "{\"kind\":\"text\",\"text\":\"x\"",
+      "str, slice, reader": "err Eof: EOF while parsing an object at line 1 column 25",
+      "value, value ref, array value": "not JSON: EOF while parsing an object at line 1 column 25"
+    },
+    "two missing required fields": {
+      "array str": "err Data: missing field `valuePath` at line 1 column 21",
+      "input": "{\"kind\":\"progress\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: missing field `valuePath`"
+    },
+    "two unknown fields": {
+      "array str": "err Data: unknown field `zzz`, expected one of `text`, `path`, `maxLines`, `style`, `hiddenWhen` at line 1 column 33",
+      "input": "{\"kind\":\"text\",\"zzz\":1,\"aaa\":2}",
+      "str, slice, reader": "err Data: unknown field `zzz`, expected one of `text`, `path`, `maxLines`, `style`, `hiddenWhen`",
+      "value, value ref, array value": "err Data: unknown field `aaa`, expected one of `text`, `path`, `maxLines`, `style`, `hiddenWhen`"
+    },
+    "type error then unknown field": {
+      "array str": "err Data: invalid type: integer `5`, expected a string at line 1 column 34",
+      "input": "{\"kind\":\"text\",\"text\":5,\"zzz\":1}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: integer `5`, expected a string"
+    },
+    "u8 out of range": {
+      "array str": "err Data: invalid value: integer `300`, expected u8 at line 1 column 43",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"maxLines\":300}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid value: integer `300`, expected u8"
+    },
+    "unicode text": {
+      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"红包 ☃ \\\"quoted\\\" \\\\ \\n line\"}]",
+      "input": "{\"kind\":\"text\",\"text\":\"红包 ☃ \\\"quoted\\\" \\\\ \\n line\"}",
+      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"红包 ☃ \\\"quoted\\\" \\\\ \\n line\"}"
+    },
+    "unknown enum value": {
+      "array str": "err Data: unknown variant `bold`, expected one of `body`, `title`, `secondary` at line 1 column 43",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"style\":\"bold\"}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown variant `bold`, expected one of `body`, `title`, `secondary`"
+    },
+    "unknown field": {
+      "array str": "err Data: unknown field `bogus`, expected one of `text`, `path`, `maxLines`, `style`, `hiddenWhen` at line 1 column 38",
+      "input": "{\"kind\":\"text\",\"text\":\"x\",\"bogus\":1}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown field `bogus`, expected one of `text`, `path`, `maxLines`, `style`, `hiddenWhen`"
+    },
+    "unknown field in a nested struct": {
+      "array str": "err Data: unknown field `bogus`, expected one of `path`, `anyOf`, `viewer`, `exists`, `allOf`, `negate` at line 1 column 67",
+      "input": "{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[{\"path\":\"/a\",\"bogus\":1}]}",
+      "str, slice, reader, value, value ref, array value": "err Data: unknown field `bogus`, expected one of `path`, `anyOf`, `viewer`, `exists`, `allOf`, `negate`"
+    },
+    "unknown field then type error": {
+      "array str": "err Data: unknown field `zzz`, expected one of `text`, `path`, `maxLines`, `style`, `hiddenWhen` at line 1 column 34",
+      "input": "{\"kind\":\"text\",\"zzz\":1,\"text\":5}",
+      "str, slice, reader": "err Data: unknown field `zzz`, expected one of `text`, `path`, `maxLines`, `style`, `hiddenWhen`",
+      "value, value ref, array value": "err Data: invalid type: integer `5`, expected a string"
+    },
+    "unknown kind": {
+      "array str": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 16",
+      "input": "{\"kind\":\"bogus\"}",
+      "str, slice, reader": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows` at line 1 column 15",
+      "value, value ref, array value": "err Data: unknown variant `bogus`, expected one of `text`, `fields`, `choices`, `entries`, `people`, `status`, `progress`, `time`, `divider`, `note`, `rows`"
+    },
+    "wrong field type": {
+      "array str": "err Data: invalid type: integer `5`, expected a string at line 1 column 26",
+      "input": "{\"kind\":\"text\",\"text\":5}",
+      "str, slice, reader, value, value ref, array value": "err Data: invalid type: integer `5`, expected a string"
+    }
+  }
+}
