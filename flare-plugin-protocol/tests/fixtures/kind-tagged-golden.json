@@ -13,7 +13,8 @@
     "array form with an extra element": {
       "array str": "err Data: invalid length 3, expected 2 elements in sequence at line 1 column 39",
       "input": "[\"note\",\"Heads up\",\"warning\",\"extra\"]",
-      "str, slice, reader, value, value ref, array value": "err Data: invalid length 3, expected 2 elements in sequence"
+      "str, slice, reader": "err Data: invalid length 3, expected 2 elements in sequence",
+      "value, value ref, array value": "err Data: invalid length 3, expected fewer elements in array"
     },
     "array with a number kind": {
       "input": "[1]",
@@ -178,9 +179,10 @@
       "str, slice, reader, value, value ref": "ok {\"kind\":\"rows\",\"source\":\"list\",\"columns\":[],\"rows\":[],\"actions\":[{\"id\":\"open\",\"label\":\"Open\",\"target\":{\"kind\":\"page\",\"page\":\"p\",\"pluginId\":\"x.other\"},\"input\":{}}]}"
     },
     "nested enum value as a map with an empty object": {
-      "array str, array value": "ok [{\"kind\":\"status\",\"text\":\"Open\",\"tone\":\"info\"}]",
+      "array str": "ok [{\"kind\":\"status\",\"text\":\"Open\",\"tone\":\"info\"}]",
       "input": "{\"kind\":\"status\",\"text\":\"Open\",\"tone\":{\"info\":{}}}",
-      "str, slice, reader, value, value ref": "ok {\"kind\":\"status\",\"text\":\"Open\",\"tone\":\"info\"}"
+      "str, slice, reader": "ok {\"kind\":\"status\",\"text\":\"Open\",\"tone\":\"info\"}",
+      "value, value ref, array value": "err Data: invalid type: map, expected unit"
     },
     "no kind": {
       "array str": "err Data: missing field `kind` at line 1 column 13",
@@ -320,7 +322,8 @@
     "array form with an extra element": {
       "array str": "err Data: invalid length 2, expected 1 element in sequence at line 1 column 23",
       "input": "[\"operation\",\"a\",\"b\"]",
-      "str, slice, reader, value, value ref, array value": "err Data: invalid length 2, expected 1 element in sequence"
+      "str, slice, reader": "err Data: invalid length 2, expected 1 element in sequence",
+      "value, value ref, array value": "err Data: invalid length 2, expected fewer elements in array"
     },
     "array with a number kind": {
       "input": "[1]",
@@ -346,9 +349,10 @@
       "str, slice, reader, value, value ref": "ok {\"kind\":\"native\",\"capability\":\"camera\"}"
     },
     "capability as a map with an empty object": {
-      "array str, array value": "ok [{\"kind\":\"native\",\"capability\":\"camera\"}]",
+      "array str": "ok [{\"kind\":\"native\",\"capability\":\"camera\"}]",
       "input": "{\"kind\":\"native\",\"capability\":{\"camera\":{}}}",
-      "str, slice, reader, value, value ref": "ok {\"kind\":\"native\",\"capability\":\"camera\"}"
+      "str, slice, reader": "ok {\"kind\":\"native\",\"capability\":\"camera\"}",
+      "value, value ref, array value": "err Data: invalid type: map, expected unit"
     },
     "duplicate field": {
       "array str": "err Data: duplicate field `operation` at line 1 column 54",
@@ -554,7 +558,8 @@
     "array form with an extra element": {
       "array str": "err Data: invalid length 6, expected 5 elements in sequence at line 1 column 44",
       "input": "[\"text\",\"Hello\",null,2,\"title\",[],\"extra\"]",
-      "str, slice, reader, value, value ref, array value": "err Data: invalid length 6, expected 5 elements in sequence"
+      "str, slice, reader": "err Data: invalid length 6, expected 5 elements in sequence",
+      "value, value ref, array value": "err Data: invalid length 6, expected fewer elements in array"
     },
     "array form with every field": {
       "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"Hello\",\"maxLines\":2,\"style\":\"title\"}]",
@@ -677,9 +682,10 @@
       "str, slice, reader, value, value ref, array value": "err Data: invalid type: sequence, expected unit"
     },
     "enum value as a map with an empty object": {
-      "array str, array value": "ok [{\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}]",
+      "array str": "ok [{\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}]",
       "input": "{\"kind\":\"text\",\"text\":\"x\",\"style\":{\"title\":{}}}",
-      "str, slice, reader, value, value ref": "ok {\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}"
+      "str, slice, reader": "ok {\"kind\":\"text\",\"text\":\"x\",\"style\":\"title\"}",
+      "value, value ref, array value": "err Data: invalid type: map, expected unit"
     },
     "enum value as a map with two keys": {
       "array str": "err Data: invalid value: map, expected map with a single key at line 1 column 63",
@@ -814,7 +820,8 @@
     "nested struct as an array with an extra element": {
       "array str": "err Data: invalid length 7, expected 6 elements in sequence at line 1 column 85",
       "input": "{\"kind\":\"text\",\"text\":\"a\",\"hiddenWhen\":[[\"/a\",[\"1\"],false,false,[],false,\"extra\"]]}",
-      "str, slice, reader, value, value ref, array value": "err Data: invalid length 7, expected 6 elements in sequence"
+      "str, slice, reader": "err Data: invalid length 7, expected 6 elements in sequence",
+      "value, value ref, array value": "err Data: invalid length 7, expected fewer elements in array"
     },
     "nested struct with two unknown fields": {
       "array str": "err Data: unknown field `zzz`, expected one of `path`, `anyOf`, `viewer`, `exists`, `allOf`, `negate` at line 1 column 61",

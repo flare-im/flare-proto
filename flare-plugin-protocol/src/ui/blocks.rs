@@ -21,7 +21,7 @@ use super::{
     UiTranslation, bind_inputs, resolve_action, resolve_fields, scalar_text, translate,
     valid_field, valid_long_text, valid_name, valid_path, valid_text,
 };
-use crate::{ProtocolError, Result};
+use crate::{ProtocolError, Result, tagged::kind_tagged};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -70,7 +70,7 @@ fn is_true(value: &bool) -> bool {
 
 /// A display block, tagged by `kind`. Every kind may carry `hiddenWhen`
 /// conditions that leave it out of the resolved view.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum UiBlock {
     Text(UiTextBlock),
@@ -85,6 +85,21 @@ pub enum UiBlock {
     Note(UiNoteBlock),
     /// Page and admin page (`admin.pages`) documents only.
     Rows(UiRowsBlock),
+}
+kind_tagged! {
+    UiBlock = "UiBlock" {
+        "text" => Text(UiTextBlock),
+        "fields" => Fields(UiFieldsBlock),
+        "choices" => Choices(UiChoicesBlock),
+        "entries" => Entries(UiEntriesBlock),
+        "people" => People(UiPeopleBlock),
+        "status" => Status(UiStatusBlock),
+        "progress" => Progress(UiProgressBlock),
+        "time" => Time(UiTimeBlock),
+        "divider" => Divider(UiDividerBlock),
+        "note" => Note(UiNoteBlock),
+        "rows" => Rows(UiRowsBlock),
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -485,7 +500,7 @@ pub struct UiRowsBlock {
 // A resolved block is built per rendered page and serialized right away; boxing the choices
 // variant (it carries its submit action) would only add an allocation.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ResolvedUiBlock {
     Text(ResolvedUiText),
@@ -499,6 +514,21 @@ pub enum ResolvedUiBlock {
     Divider(ResolvedUiDivider),
     Note(ResolvedUiNote),
     Rows(ResolvedUiRows),
+}
+kind_tagged! {
+    ResolvedUiBlock = "ResolvedUiBlock" {
+        "text" => Text(ResolvedUiText),
+        "fields" => Fields(ResolvedUiFields),
+        "choices" => Choices(ResolvedUiChoices),
+        "entries" => Entries(ResolvedUiEntries),
+        "people" => People(ResolvedUiPeople),
+        "status" => Status(ResolvedUiStatus),
+        "progress" => Progress(ResolvedUiProgress),
+        "time" => Time(ResolvedUiTime),
+        "divider" => Divider(ResolvedUiDivider),
+        "note" => Note(ResolvedUiNote),
+        "rows" => Rows(ResolvedUiRows),
+    }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

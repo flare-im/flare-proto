@@ -16,6 +16,7 @@ pub mod runtime;
 pub mod service;
 pub mod signature;
 pub mod state;
+mod tagged;
 pub mod ui;
 pub mod workload;
 

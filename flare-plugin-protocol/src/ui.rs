@@ -29,6 +29,7 @@ use crate::{
     ProtocolError, Result,
     manifest::{ClientExtensions, ClientPlatform, UiContribution, UiContributionKind},
     state::SharedState,
+    tagged::kind_tagged,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -685,7 +686,7 @@ pub(crate) fn translate(translation: Option<&UiTranslation>, source: &str) -> St
         .map_or(source, String::as_str)
         .to_owned()
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum UiActionTarget {
     Operation {
@@ -699,6 +700,17 @@ pub enum UiActionTarget {
     Native {
         capability: NativeCapability,
     },
+}
+kind_tagged! {
+    UiActionTarget = "UiActionTarget", deny_unknown_fields {
+        "operation" => Operation { operation: String },
+        "page" => Page {
+            page: String,
+            #[serde(rename = "pluginId", default)]
+            plugin_id: Option<String>,
+        },
+        "native" => Native { capability: NativeCapability },
+    }
 }
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
